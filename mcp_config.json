@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "airqoon-analyzer": {
+      "command": "python3",
+      "args": [
+        "/Users/bhan/Downloads/Airqoon/mcp_server.py"
+      ],
+      "env": {
+        "PGUSER": "bhan",
+        "PYTHONPATH": "/Users/bhan/Downloads/Airqoon"
+      }
+    }
+  }
+}
