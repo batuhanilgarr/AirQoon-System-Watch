@@ -1,12 +1,13 @@
 @using System.Text.Json
 @using System.Text
+@using AirQoon.Web.Services
 @using AirQoon.Web.Models.Chat
 @inject NavigationManager Nav
-@inject IHttpClientFactory HttpClientFactory
+@inject IChatOrchestrationService Chat
 @inject IJSRuntime Js
 @implements IAsyncDisposable
 
-<div class="card" style="max-width: 720px;">
+<div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <div>
             <strong>AirQoon Chat</strong>
@@ -16,7 +17,7 @@
             }
         </div>
         <div class="d-flex align-items-center gap-2">
-            <div class="text-muted" style="font-size: 0.9rem;">Session: @_sessionIdShort</div>
+            <div class="text-muted" style="font-size: 0.9rem;">Session: @_sessionId</div>
             <button class="btn btn-outline-secondary btn-sm" @onclick="ShowEndChatModal">Konuşmayı Bitir</button>
         </div>
     </div>
@@ -89,7 +90,6 @@
     private static readonly TimeSpan InactivityTimeout = TimeSpan.FromMinutes(30);
 
     private string _sessionId = string.Empty;
-    private string _sessionIdShort = string.Empty;
     private string _input = string.Empty;
     private bool _sending;
     private string? _tenantInput;
@@ -155,8 +155,6 @@
                 _sessionId = Guid.NewGuid().ToString();
             }
 
-            _sessionIdShort = _sessionId.Length <= 8 ? _sessionId : _sessionId[..8] + "...";
-
             var inactiveFor = DateTime.UtcNow - _lastActivityUtc;
             if (inactiveFor >= InactivityTimeout)
             {
@@ -174,7 +172,6 @@
             if (string.IsNullOrWhiteSpace(_sessionId))
             {
                 _sessionId = Guid.NewGuid().ToString();
-                _sessionIdShort = _sessionId[..8] + "...";
             }
         }
     }
@@ -230,7 +227,6 @@
         await ClearSessionAsync();
 
         _sessionId = Guid.NewGuid().ToString();
-        _sessionIdShort = _sessionId[..8] + "...";
         _lastActivityUtc = DateTime.UtcNow;
 
         _messages.Clear();
@@ -273,7 +269,6 @@
         await ClearSessionAsync();
 
         _sessionId = Guid.NewGuid().ToString();
-        _sessionIdShort = _sessionId[..8] + "...";
         _lastActivityUtc = DateTime.UtcNow;
 
         _messages.Clear();
@@ -329,9 +324,6 @@
 
         try
         {
-            var client = HttpClientFactory.CreateClient();
-            client.BaseAddress = new Uri(Nav.BaseUri);
-
             var req = new ChatRequest
             {
                 SessionId = _sessionId,
@@ -340,10 +332,7 @@
                 TenantSlug = string.IsNullOrWhiteSpace(_tenantInput) ? null : _tenantInput
             };
 
-            var resp = await client.PostAsJsonAsync("/api/chat", req);
-            resp.EnsureSuccessStatusCode();
-
-            var chat = await resp.Content.ReadFromJsonAsync<ChatResponse>();
+            var chat = await Chat.HandleMessageAsync(req, CancellationToken.None);
             if (chat is null)
             {
                 _messages.Add(new ChatLine(false, "Yanıt alınamadı.", DateTime.UtcNow));
@@ -351,7 +340,6 @@
             }
 
             _sessionId = chat.SessionId;
-            _sessionIdShort = _sessionId.Length <= 8 ? _sessionId : _sessionId[..8] + "...";
             _tenantSlug = chat.TenantSlug;
             _messages.Add(new ChatLine(false, chat.Reply, DateTime.UtcNow));
             TouchActivity();
