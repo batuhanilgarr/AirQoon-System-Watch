@@ -1,7 +1,10 @@
 @using System.Text.Json
+@using System.Text
 @using AirQoon.Web.Models.Chat
 @inject NavigationManager Nav
 @inject IHttpClientFactory HttpClientFactory
+@inject IJSRuntime Js
+@implements IAsyncDisposable
 
 <div class="card" style="max-width: 720px;">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -12,7 +15,10 @@
                 <span class="badge bg-secondary ms-2">@_tenantSlug</span>
             }
         </div>
-        <div class="text-muted" style="font-size: 0.9rem;">Session: @_sessionId</div>
+        <div class="d-flex align-items-center gap-2">
+            <div class="text-muted" style="font-size: 0.9rem;">Session: @_sessionIdShort</div>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="ShowEndChatModal">Konuşmayı Bitir</button>
+        </div>
     </div>
 
     <div class="card-body" style="height: 420px; overflow:auto;">
@@ -54,20 +60,262 @@
     </div>
 </div>
 
+@if (_showEndChatModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Konuşmayı Bitir</h5>
+                    <button type="button" class="btn-close" @onclick="CloseEndChatModal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0">Konuşma geçmişini indirmek ister misiniz?</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" @onclick="EndChatWithDownload">Evet, İndir</button>
+                    <button class="btn btn-secondary" @onclick="EndChatWithoutDownload">Hayır, Sadece Bitir</button>
+                    <button class="btn btn-outline-secondary" @onclick="CloseEndChatModal">İptal</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
-    private string _sessionId = Guid.NewGuid().ToString();
+    private const string SessionKey = "chat_sessionId";
+    private const string LastActivityKey = "chat_lastActivityUtc";
+    private const string MessagesKey = "chat_messages";
+    private static readonly TimeSpan InactivityTimeout = TimeSpan.FromMinutes(30);
+
+    private string _sessionId = string.Empty;
+    private string _sessionIdShort = string.Empty;
     private string _input = string.Empty;
     private bool _sending;
     private string? _tenantInput;
     private string? _tenantSlug;
+
+    private bool _showEndChatModal;
+    private System.Threading.Timer? _inactivityTimer;
+    private DateTime _lastActivityUtc;
 
     private readonly List<ChatLine> _messages = new();
 
     private CardModel? _lastCard;
     private ChartModel? _chart;
 
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessionAsync();
+        EnsureInactivityTimer();
+        await PersistSessionAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _inactivityTimer?.Dispose();
+        _inactivityTimer = null;
+        await Task.CompletedTask;
+    }
+
+    private async Task LoadSessionAsync()
+    {
+        try
+        {
+            var storedSession = await Js.InvokeAsync<string?>("airqoonSession.get", SessionKey);
+            var storedLast = await Js.InvokeAsync<string?>("airqoonSession.get", LastActivityKey);
+            var storedMessages = await Js.InvokeAsync<string?>("airqoonSession.get", MessagesKey);
+
+            if (!string.IsNullOrWhiteSpace(storedSession))
+            {
+                _sessionId = storedSession;
+            }
+
+            if (!string.IsNullOrWhiteSpace(storedLast) && DateTime.TryParse(storedLast, out var lastUtc))
+            {
+                _lastActivityUtc = DateTime.SpecifyKind(lastUtc, DateTimeKind.Utc);
+            }
+            else
+            {
+                _lastActivityUtc = DateTime.UtcNow;
+            }
+
+            if (!string.IsNullOrWhiteSpace(storedMessages))
+            {
+                var list = JsonSerializer.Deserialize<List<ChatLine>>(storedMessages);
+                if (list is not null && list.Count > 0)
+                {
+                    _messages.Clear();
+                    _messages.AddRange(list);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(_sessionId))
+            {
+                _sessionId = Guid.NewGuid().ToString();
+            }
+
+            _sessionIdShort = _sessionId.Length <= 8 ? _sessionId : _sessionId[..8] + "...";
+
+            var inactiveFor = DateTime.UtcNow - _lastActivityUtc;
+            if (inactiveFor >= InactivityTimeout)
+            {
+                await OnInactivityTimeoutAsync();
+                return;
+            }
+
+            if (_messages.Count == 0)
+            {
+                _messages.Add(new ChatLine(false, "Merhaba! Tenant ve hava kalitesi sorgularınız için buradayım.", DateTime.UtcNow));
+            }
+        }
+        catch
+        {
+            if (string.IsNullOrWhiteSpace(_sessionId))
+            {
+                _sessionId = Guid.NewGuid().ToString();
+                _sessionIdShort = _sessionId[..8] + "...";
+            }
+        }
+    }
+
+    private void EnsureInactivityTimer()
+    {
+        _inactivityTimer?.Dispose();
+        _inactivityTimer = new System.Threading.Timer(
+            _ => _ = InvokeAsync(OnInactivityTimeoutAsync),
+            null,
+            InactivityTimeout,
+            System.Threading.Timeout.InfiniteTimeSpan);
+    }
+
+    private void TouchActivity()
+    {
+        _lastActivityUtc = DateTime.UtcNow;
+        EnsureInactivityTimer();
+        _ = PersistSessionAsync();
+    }
+
+    private async Task PersistSessionAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("airqoonSession.set", SessionKey, _sessionId);
+            await Js.InvokeVoidAsync("airqoonSession.set", LastActivityKey, _lastActivityUtc.ToString("O"));
+            await Js.InvokeVoidAsync("airqoonSession.set", MessagesKey, JsonSerializer.Serialize(_messages));
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task ClearSessionAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("airqoonSession.remove", SessionKey);
+            await Js.InvokeVoidAsync("airqoonSession.remove", LastActivityKey);
+            await Js.InvokeVoidAsync("airqoonSession.remove", MessagesKey);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task OnInactivityTimeoutAsync()
+    {
+        _inactivityTimer?.Dispose();
+        _inactivityTimer = null;
+
+        await ClearSessionAsync();
+
+        _sessionId = Guid.NewGuid().ToString();
+        _sessionIdShort = _sessionId[..8] + "...";
+        _lastActivityUtc = DateTime.UtcNow;
+
+        _messages.Clear();
+        _messages.Add(new ChatLine(false, "⏱️ 30 dakika boyunca mesaj gönderilmediği için oturum sonlandırıldı.", DateTime.UtcNow));
+        _messages.Add(new ChatLine(false, "Yeni bir konuşma başlatıldı. Tenant ve sorunu yazabilirsin.", DateTime.UtcNow));
+
+        await PersistSessionAsync();
+        EnsureInactivityTimer();
+        StateHasChanged();
+    }
+
+    private void ShowEndChatModal()
+    {
+        _showEndChatModal = true;
+    }
+
+    private void CloseEndChatModal()
+    {
+        _showEndChatModal = false;
+    }
+
+    private async Task EndChatWithDownload()
+    {
+        await DownloadChatHistoryAsync();
+        await EndChatSessionAsync(false);
+        CloseEndChatModal();
+    }
+
+    private async Task EndChatWithoutDownload()
+    {
+        await EndChatSessionAsync(false);
+        CloseEndChatModal();
+    }
+
+    private async Task EndChatSessionAsync(bool showDownloadPrompt)
+    {
+        _inactivityTimer?.Dispose();
+        _inactivityTimer = null;
+
+        await ClearSessionAsync();
+
+        _sessionId = Guid.NewGuid().ToString();
+        _sessionIdShort = _sessionId[..8] + "...";
+        _lastActivityUtc = DateTime.UtcNow;
+
+        _messages.Clear();
+        _messages.Add(new ChatLine(false, "Yeni bir konuşma başlatıldı. Tenant ve sorunu yazabilirsin.", DateTime.UtcNow));
+        await PersistSessionAsync();
+
+        EnsureInactivityTimer();
+    }
+
+    private async Task DownloadChatHistoryAsync()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== AirQoon Chat Geçmişi ===");
+            sb.AppendLine($"Session ID: {_sessionId}");
+            sb.AppendLine($"Tarih: {DateTime.Now:dd.MM.yyyy HH:mm:ss}");
+            sb.AppendLine();
+
+            foreach (var message in _messages)
+            {
+                var sender = message.IsUser ? "Kullanıcı" : "Asistan";
+                sb.AppendLine($"[{message.Timestamp.ToLocalTime():dd.MM.yyyy HH:mm:ss}] {sender}:");
+                sb.AppendLine(message.Text);
+                sb.AppendLine();
+                sb.AppendLine("---");
+                sb.AppendLine();
+            }
+
+            var shortId = _sessionId.Length <= 8 ? _sessionId : _sessionId[..8];
+            var fileName = $"airqoon_chat_{shortId}_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
+            await Js.InvokeVoidAsync("airqoonSession.downloadTextFile", fileName, sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            _messages.Add(new ChatLine(false, $"❌ Geçmiş indirilirken hata oluştu: {ex.Message}", DateTime.UtcNow));
+        }
+    }
+
     private async Task SendAsync()
     {
+        TouchActivity();
         var text = _input?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(text) || _sending)
         {
@@ -75,8 +323,9 @@
         }
 
         _sending = true;
-        _messages.Add(new ChatLine(true, text));
+        _messages.Add(new ChatLine(true, text, DateTime.UtcNow));
         _input = string.Empty;
+        await PersistSessionAsync();
 
         try
         {
@@ -97,23 +346,27 @@
             var chat = await resp.Content.ReadFromJsonAsync<ChatResponse>();
             if (chat is null)
             {
-                _messages.Add(new ChatLine(false, "Yanıt alınamadı."));
+                _messages.Add(new ChatLine(false, "Yanıt alınamadı.", DateTime.UtcNow));
                 return;
             }
 
             _sessionId = chat.SessionId;
+            _sessionIdShort = _sessionId.Length <= 8 ? _sessionId : _sessionId[..8] + "...";
             _tenantSlug = chat.TenantSlug;
-            _messages.Add(new ChatLine(false, chat.Reply));
+            _messages.Add(new ChatLine(false, chat.Reply, DateTime.UtcNow));
+            TouchActivity();
+            await PersistSessionAsync();
 
             BuildUiHintsFromReply(chat);
         }
         catch (Exception ex)
         {
-            _messages.Add(new ChatLine(false, ex.Message));
+            _messages.Add(new ChatLine(false, ex.Message, DateTime.UtcNow));
         }
         finally
         {
             _sending = false;
+            await PersistSessionAsync();
         }
     }
 
@@ -236,7 +489,7 @@
         }
     }
 
-    private sealed record ChatLine(bool IsUser, string Text);
+    private sealed record ChatLine(bool IsUser, string Text, DateTime Timestamp);
 
     private sealed class CardModel
     {
