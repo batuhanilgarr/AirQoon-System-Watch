@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY mcp_server.py vector_db_api.py embedding_utils.py vector_db_setup.py ./
+
+EXPOSE 5005
+
+ENV MCP_HTTP=1 \
+    MCP_HTTP_PORT=5005
+
+CMD ["python", "mcp_server.py"]

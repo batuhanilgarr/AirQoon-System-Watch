@@ -26,6 +26,8 @@ except ImportError:
     from mcp.types import Tool, TextContent
 import json
 
+from flask import Flask, request, jsonify
+
 # Database connections
 from pymongo import MongoClient
 import psycopg2
@@ -46,18 +48,26 @@ def get_mongo_client():
     """MongoDB client'ı döndür (singleton)"""
     global mongo_client
     if mongo_client is None:
-        mongo_client = MongoClient("mongodb://localhost:27017/")
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+        mongo_client = MongoClient(mongo_uri)
     return mongo_client
 
 def get_pg_connection():
     """PostgreSQL connection'ı döndür (singleton)"""
     global pg_conn
     if pg_conn is None or pg_conn.closed:
+        pg_host = os.getenv("PGHOST", "localhost")
+        pg_db = os.getenv("PGDATABASE", "airqoon")
+        pg_user = os.getenv("PGUSER", os.getenv("USER", "bhan"))
+        pg_password = os.getenv("PGPASSWORD")
+        pg_port = int(os.getenv("PGPORT", "5432"))
+
         pg_conn = psycopg2.connect(
-            host="localhost",
-            database="airqoon",
-            user=os.getenv("PGUSER", os.getenv("USER", "bhan")),
-            port=5432
+            host=pg_host,
+            database=pg_db,
+            user=pg_user,
+            password=pg_password,
+            port=pg_port
         )
     return pg_conn
 
@@ -671,5 +681,39 @@ async def main():
         sys.exit(1)
 
 
+def run_http_server():
+    app = Flask(__name__)
+
+    @app.get("/health")
+    def health():
+        return jsonify({"status": "ok"})
+
+    @app.get("/healthz")
+    def healthz():
+        return jsonify({"status": "ok"})
+
+    @app.post("/call_tool")
+    def call_tool_http():
+        payload = request.get_json(silent=True) or {}
+        tool_name = payload.get("tool")
+        arguments = payload.get("arguments") or {}
+
+        if not tool_name:
+            return jsonify({"error": "tool is required"}), 400
+
+        try:
+            result = asyncio.run(call_tool(tool_name, arguments))
+            text = "\n".join([c.text for c in result if getattr(c, "type", None) == "text"]) if result else ""
+            return jsonify({"text": text})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    port = int(os.getenv("MCP_HTTP_PORT", "5005"))
+    app.run(host="0.0.0.0", port=port, debug=False)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    if os.getenv("MCP_HTTP", "0") == "1":
+        run_http_server()
+    else:
+        asyncio.run(main())

@@ -62,6 +62,35 @@ pip install -r requirements.txt
 docker-compose up -d
 ```
 
+### ⚙️ Environment Variables (Docker Compose)
+
+`docker-compose.yml` dosyası varsayılan değerlerle çalışır; production için aşağıdaki değişkenleri tanımlaman önerilir.
+
+- **POSTGRES_USER**
+- **POSTGRES_PASSWORD**
+- **POSTGRES_DB**
+- **POSTGRES_PORT** (varsayılan: 5432, sadece `127.0.0.1` üzerinden publish edilir)
+- **MONGO_PORT** (varsayılan: 27017, sadece `127.0.0.1` üzerinden publish edilir)
+- **QDRANT_PORT** (varsayılan: 6333, sadece `127.0.0.1` üzerinden publish edilir)
+- **QDRANT_GRPC_PORT** (varsayılan: 6334, sadece `127.0.0.1` üzerinden publish edilir)
+- **MCP_PORT** (varsayılan: 5005, sadece `127.0.0.1` üzerinden publish edilir)
+- **WEB_PORT** (varsayılan: 8080)
+- **ASPNETCORE_ENVIRONMENT** (varsayılan: Production)
+
+Opsiyonel override'lar:
+
+- **CONNECTIONSTRINGS__DEFAULTCONNECTION**
+- **CONNECTIONSTRINGS__AIRQUALITYCONNECTION**
+- **MONGO__CONNECTIONSTRING**
+- **MONGO__DATABASE**
+- **QDRANT__HOST**
+- **MCP__HTTPBASEURL**
+
+Notlar:
+
+- `web` container healthcheck için `GET /healthz` endpoint'i kullanır.
+- DB portları varsayılan olarak dış ağa açılmaz (localhost bind). Dışarı açman gerekiyorsa compose mapping'lerini değiştir.
+
 5. **Vector Database'i kurun:**
 ```bash
 python3 vector_db_setup.py
@@ -207,6 +236,20 @@ python3 -c "from embedding_utils import generate_embedding; print('Embedding OK'
 
 # Vector DB test
 python3 vector_db_setup.py
+```
+
+## 🚢 Production Deployment Notları
+
+- `POSTGRES_PASSWORD` gibi credential'ları production'da repo içine yazma. Environment üzerinden ver veya secret mekanizması kullan.
+- PostgreSQL ve MongoDB şimdilik **local** çalıştırılır. Docker Compose yalnızca `qdrant`, `mcp`, `web` servislerini ayağa kaldırır.
+- Container'ların host üzerindeki DB'lere erişimi için `host.docker.internal` kullanılır.
+- `web` servisinin sağlıklı olduğunu doğrulamak için `GET /healthz` endpoint'i kullanılabilir.
+- Production'da ters proxy (örn. Nginx/Caddy) arkasında HTTPS terminasyonu önerilir.
+
+Çalıştırma:
+
+```bash
+docker-compose up -d --build
 ```
 
 ## 📝 Örnek Kullanım Senaryoları
