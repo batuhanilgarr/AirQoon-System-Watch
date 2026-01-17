@@ -12,6 +12,7 @@ from functools import wraps
 import json
 from datetime import datetime
 import hashlib
+import uuid
 
 # Embedding utilities
 try:
@@ -268,7 +269,7 @@ class TenantIsolatedVectorAPI:
         
         # Vector ID oluştur
         if vector_id is None:
-            vector_id = generate_vector_id(analysis_text, prefix=tenant_slug)
+            vector_id = uuid.uuid4().hex
         
         # Embedding oluştur
         embedding = generate_embedding(analysis_text)
