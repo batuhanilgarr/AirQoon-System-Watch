@@ -386,6 +386,13 @@ h1:focus {
     margin: 0.75rem 0;
 }
 
+.aq-rag {
+    border: 1px solid var(--aq-border);
+    border-radius: 12px;
+    padding: 12px;
+    background: #F9FAFB;
+}
+
 @media (max-width: 640px) {
     .aq-hero {
         flex-direction: column;

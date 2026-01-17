@@ -35,7 +35,36 @@
                 }
                 else
                 {
-                    <div class="aq-md">@((MarkupString)RenderMarkdown(m.Text))</div>
+                    var parsed = ParseAssistantReply(m);
+                    <div class="aq-md">
+                        @((MarkupString)RenderMarkdown(parsed.MainText))
+
+                        @if (!string.IsNullOrWhiteSpace(parsed.RagText))
+                        {
+                            if (parsed.RagCount <= 1)
+                            {
+                                <div class="mt-2 aq-rag">
+                                    @((MarkupString)RenderMarkdown(parsed.RagText))
+                                </div>
+                            }
+                            else
+                            {
+                                var expanded = IsRagExpanded(m);
+                                <div class="mt-2">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => ToggleRag(m)">
+                                        @(expanded ? "İlgili Analizleri Gizle" : "İlgili Analizleri Göster")
+                                    </button>
+                                </div>
+
+                                @if (expanded)
+                                {
+                                    <div class="mt-2 aq-rag">
+                                        @((MarkupString)RenderMarkdown(parsed.RagText))
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
                 }
             </div>
         }
@@ -107,6 +136,8 @@
     private bool _showEndChatModal;
     private System.Threading.Timer? _inactivityTimer;
     private DateTime _lastActivityUtc;
+
+    private readonly Dictionary<long, bool> _ragExpandedByMessageTicks = new();
 
     private readonly List<ChatLine> _messages = new();
 
@@ -487,6 +518,60 @@
     }
 
     private sealed record ChatLine(bool IsUser, string Text, DateTime Timestamp);
+
+    private sealed record ParsedAssistantReply(string MainText, string? RagText, int RagCount);
+
+    private static readonly string RagSeparator = "\n\n---\n\n## İlgili önceki analizler (RAG)\n\n";
+
+    private ParsedAssistantReply ParseAssistantReply(ChatLine m)
+    {
+        var text = m.Text ?? string.Empty;
+        var idx = text.IndexOf(RagSeparator, StringComparison.Ordinal);
+        if (idx < 0)
+        {
+            return new ParsedAssistantReply(text, null, 0);
+        }
+
+        var main = text[..idx].Trim();
+        var rag = text[(idx + RagSeparator.Length)..].Trim();
+        var ragCount = TryParseRagCount(rag);
+        return new ParsedAssistantReply(main, rag, ragCount);
+    }
+
+    private static int TryParseRagCount(string ragText)
+    {
+        if (string.IsNullOrWhiteSpace(ragText))
+        {
+            return 0;
+        }
+
+        // Example line: "**Bulunan Sonuç:** 3 adet"
+        var match = System.Text.RegularExpressions.Regex.Match(ragText, "\\*\\*Bulunan\\s+Sonuç:\\*\\*\\s+(?<n>\\d+)");
+        if (match.Success && int.TryParse(match.Groups["n"].Value, out var n))
+        {
+            return n;
+        }
+
+        // Fallback: count result headers like "### 1. Sonuç" in the markdown
+        var headers = System.Text.RegularExpressions.Regex.Matches(ragText, "(?m)^###\\s+\\d+\\.\\s+Sonuç");
+        if (headers.Count > 0)
+        {
+            return headers.Count;
+        }
+
+        return 0;
+    }
+
+    private bool IsRagExpanded(ChatLine m)
+    {
+        return _ragExpandedByMessageTicks.TryGetValue(m.Timestamp.Ticks, out var v) && v;
+    }
+
+    private void ToggleRag(ChatLine m)
+    {
+        var key = m.Timestamp.Ticks;
+        _ragExpandedByMessageTicks[key] = !IsRagExpanded(m);
+    }
 
     private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()

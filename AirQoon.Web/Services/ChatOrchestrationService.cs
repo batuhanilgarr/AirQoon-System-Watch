@@ -85,6 +85,16 @@ public class ChatOrchestrationService : IChatOrchestrationService
             // LLM detection is best-effort; fallback to heuristic
         }
 
+        // Guardrail: for queries like "son gün hava kalitesini göster" without a pollutant,
+        // prefer StatisticalAnalysis (multi-pollutant summary) instead of single-pollutant AirQualityQuery.
+        var normalizedMessage = userMessage.ToLowerInvariant()
+            .Replace('ı', 'i').Replace('ş', 's').Replace('ğ', 'g').Replace('ü', 'u').Replace('ö', 'o').Replace('ç', 'c');
+        var hasPollutant = Regex.IsMatch(userMessage, "\\b(pm10|pm2\\.5|pm25|no2|so2|o3|co)\\b", RegexOptions.IgnoreCase);
+        if ((normalizedMessage.Contains("hava kalitesi") || normalizedMessage.Contains("hava kalitesini")) && !hasPollutant)
+        {
+            intent = IntentType.StatisticalAnalysis;
+        }
+
         var userEntity = new ChatMessage
         {
             SessionId = session.SessionId,
@@ -248,6 +258,16 @@ public class ChatOrchestrationService : IChatOrchestrationService
     private IntentType DetectIntent(string message)
     {
         var m = message.ToLowerInvariant();
+
+        // Normalize Turkish diacritics for robust keyword matching
+        var norm = m.Replace('ı', 'i').Replace('ş', 's').Replace('ğ', 'g').Replace('ü', 'u').Replace('ö', 'o').Replace('ç', 'c');
+
+        var hasPollutant = Regex.IsMatch(m, "\\b(pm10|pm2\\.5|pm25|no2|so2|o3|co)\\b");
+
+        if (norm.Contains("hava kalitesi") || norm.Contains("hava kalitesini"))
+        {
+            return hasPollutant ? IntentType.AirQualityQuery : IntentType.StatisticalAnalysis;
+        }
 
         if (Regex.IsMatch(m, "\\b(karşılaştır|karsilastir|kıyasla|kıyas|fark)\\b"))
         {
@@ -619,6 +639,31 @@ public class ChatOrchestrationService : IChatOrchestrationService
         var now = DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Utc);
         var start = EnsureUtc(now.AddDays(-7));
         var end = EnsureUtc(now.AddDays(1));
+
+        var normalized = message.ToLowerInvariant();
+        normalized = normalized.Replace('ı', 'i').Replace('ş', 's').Replace('ğ', 'g').Replace('ü', 'u').Replace('ö', 'o').Replace('ç', 'c');
+
+        // Relative date phrases
+        if (normalized.Contains("dun") || normalized.Contains("dün"))
+        {
+            start = EnsureUtc(now.AddDays(-1));
+            end = EnsureUtc(now);
+            return (start, end);
+        }
+
+        if (normalized.Contains("bugun") || normalized.Contains("bugün"))
+        {
+            start = EnsureUtc(now);
+            end = EnsureUtc(now.AddDays(1));
+            return (start, end);
+        }
+
+        if (normalized.Contains("son gun") || normalized.Contains("son gün") || normalized.Contains("son 24 saat") || normalized.Contains("son 1 gun"))
+        {
+            start = EnsureUtc(now.AddDays(-1));
+            end = EnsureUtc(now);
+            return (start, end);
+        }
 
         var range = Regex.Match(message, "(?<y1>\\d{4})-(?<m1>\\d{2})-(?<d1>\\d{2}).*(?<y2>\\d{4})-(?<m2>\\d{2})-(?<d2>\\d{2})");
         if (range.Success)
