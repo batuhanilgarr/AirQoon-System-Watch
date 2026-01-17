@@ -12,6 +12,11 @@ AirQoon System Watch, hava kalitesi verilerini analiz etmek, tenant bazlı karş
 - 🔎 **RAG (Retrieval-Augmented Generation)**: Vector database ile semantic search ve akıllı analiz sorguları
 - 📈 **Dramatik Değişiklik Tespiti**: %20'den fazla değişimleri otomatik olarak vurgulama
 - 🌐 **Çoklu Veritabanı Desteği**: PostgreSQL, MongoDB ve Qdrant entegrasyonu
+- 💬 **Modern Web UI (Blazor)**: Dashboard + Chat sayfası
+- 🧠 **Chat UX**: Kalıcı session (localStorage), 30dk inactivity timeout, konuşmayı bitir + geçmiş indirme
+- 📝 **Markdown Chat Render**: Asistan yanıtları markdown olarak render edilir (başlıklar/listeler/kod blokları)
+- 🧩 **RAG UI**: 2+ sonuç varsa "İlgili Analizleri Göster" ile collapse/expand, 1 sonuç varsa direkt gösterim
+- 📅 **Göreli Tarih Sorguları**: "dün", "bugün", "son gün" gibi ifadeler desteklenir
 
 ## 🏗️ Mimari
 
@@ -61,6 +66,14 @@ pip install -r requirements.txt
 ```bash
 docker-compose up -d
 ```
+
+### Web Uygulaması (Dashboard + Chat)
+
+Docker Compose ile `web` servisi ayağa kalktığında:
+
+- Dashboard: `http://localhost:8081/`
+- Chat: `http://localhost:8081/chat`
+- Healthcheck: `http://localhost:8081/healthz`
 
 ### ⚙️ Environment Variables (Docker Compose)
 
@@ -195,6 +208,7 @@ Manuel olarak analiz sonuçlarını vector DB'ye kaydeder.
 - **Qdrant**: Vector embeddings (semantic search için)
   - Her tenant için ayrı collection: `tenant_{tenant_slug}`
   - Embedding model: `paraphrase-multilingual-MiniLM-L12-v2` (384 dimension)
+  - Not: `save_analysis_to_vector_db` artık her kayıtta UUID tabanlı yeni point id üretir (points_count artar)
 
 ## 🔐 Güvenlik ve İzolasyon
 
@@ -245,6 +259,14 @@ python3 vector_db_setup.py
 - Container'ların host üzerindeki DB'lere erişimi için `host.docker.internal` kullanılır.
 - `web` servisinin sağlıklı olduğunu doğrulamak için `GET /healthz` endpoint'i kullanılabilir.
 - Production'da ters proxy (örn. Nginx/Caddy) arkasında HTTPS terminasyonu önerilir.
+
+### API Quick Test
+
+```bash
+curl -s -X POST http://localhost:8081/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"sessionId":"demo","message":"akcansa icin 2025-01-01 ile 2025-01-08 arasi PM10 analizi","domain":"http://localhost:8081/chat","tenantSlug":"akcansa"}'
+```
 
 Çalıştırma:
 
