@@ -7,7 +7,7 @@ Her tenant sadece kendi verilerine erişebilir
 import os
 from typing import List, Dict, Optional
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, Query
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, Query, VectorParams, Distance
 from functools import wraps
 import json
 from datetime import datetime
@@ -55,8 +55,27 @@ class TenantIsolatedVectorAPI:
         collection_name = self._get_collection_name(tenant_slug)
         try:
             collections = self.client.get_collections()
-            return collection_name in [col.name for col in collections.collections]
-        except:
+            existing = collection_name in [col.name for col in collections.collections]
+            if existing:
+                return True
+
+            # Auto-create missing collection to avoid hard failures in RAG flow.
+            vector_size = 384
+            if get_embedding_dimension is not None:
+                try:
+                    vector_size = int(get_embedding_dimension())
+                except Exception:
+                    vector_size = 384
+
+            self.client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(
+                    size=vector_size,
+                    distance=Distance.COSINE
+                )
+            )
+            return True
+        except Exception:
             return False
     
     def insert_vector(

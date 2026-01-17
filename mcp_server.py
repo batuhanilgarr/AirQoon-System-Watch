@@ -709,6 +709,24 @@ def run_http_server():
             return jsonify({"error": str(e)}), 500
 
     port = int(os.getenv("MCP_HTTP_PORT", "5005"))
+
+    # Warm up embedding model once at startup to avoid cold-start latency on first request.
+    # Start it in a background thread (non-blocking). Can be disabled by setting MCP_WARMUP=0.
+    if os.getenv("MCP_WARMUP", "1") == "1":
+        try:
+            import threading
+
+            def _warmup():
+                try:
+                    from embedding_utils import get_embedding_model
+                    get_embedding_model()
+                except Exception as e:
+                    print(f"⚠️ MCP warm-up failed: {e}")
+
+            threading.Thread(target=_warmup, daemon=True).start()
+        except Exception as e:
+            print(f"⚠️ MCP warm-up thread start failed: {e}")
+
     app.run(host="0.0.0.0", port=port, debug=False)
 
 

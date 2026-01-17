@@ -184,13 +184,16 @@ public class ChatOrchestrationService : IChatOrchestrationService
     {
         try
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(4));
+
             var results = await _mcp.SearchAnalysisFromVectorDbAsync(
                 tenantSlug,
                 queryText,
                 limit: 3,
                 scoreThreshold: 0.5,
                 filterType: null,
-                cancellationToken: cancellationToken);
+                cancellationToken: cts.Token);
 
             if (results.Count == 0)
             {
@@ -442,12 +445,15 @@ public class ChatOrchestrationService : IChatOrchestrationService
                 ["device_count"] = deviceIds.Count
             };
 
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(4));
+
             await _mcp.SaveAnalysisToVectorDbAsync(
                 tenantSlug,
                 reply,
                 "air_quality_query",
                 meta,
-                cancellationToken);
+                cts.Token);
         }
         catch
         {
@@ -533,7 +539,10 @@ public class ChatOrchestrationService : IChatOrchestrationService
         context.Month1 = m1;
         context.Month2 = m2;
 
-        var result = await _mcp.TenantMonthlyComparisonAsync(tenantSlug, m1, m2, null, cancellationToken);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(25));
+
+        var result = await _mcp.TenantMonthlyComparisonAsync(tenantSlug, m1, m2, null, cts.Token);
 
         var parameters = new Dictionary<string, object?>
         {

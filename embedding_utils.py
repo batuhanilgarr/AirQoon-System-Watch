@@ -7,6 +7,7 @@ Sentence-transformers kullanarak Türkçe metinler için embedding oluşturur
 import os
 from typing import List, Optional
 import hashlib
+import threading
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -16,6 +17,7 @@ except ImportError:
 # Global model instance (lazy loading)
 _embedding_model = None
 _embedding_model_name = "paraphrase-multilingual-MiniLM-L12-v2"  # Türkçe destekleyen model
+_embedding_model_lock = threading.Lock()
 
 
 def get_embedding_model():
@@ -28,9 +30,11 @@ def get_embedding_model():
         )
     
     if _embedding_model is None:
-        print(f"🔄 Embedding model yükleniyor: {_embedding_model_name}")
-        _embedding_model = SentenceTransformer(_embedding_model_name)
-        print(f"✓ Model yüklendi (embedding size: {_embedding_model.get_sentence_embedding_dimension()})")
+        with _embedding_model_lock:
+            if _embedding_model is None:
+                print(f"🔄 Embedding model yükleniyor: {_embedding_model_name}")
+                _embedding_model = SentenceTransformer(_embedding_model_name)
+                print(f"✓ Model yüklendi (embedding size: {_embedding_model.get_sentence_embedding_dimension()})")
     
     return _embedding_model
 

@@ -23,6 +23,10 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)  # Production'da kullanılacak
 
+# MongoDB bağlantı bilgileri
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_DB = os.getenv("MONGO_DB", "airqoonBaseMapDB")
+
 class TenantIsolatedVectorDB:
     """
     Tenant bazlı izole vector database yönetimi
@@ -100,8 +104,8 @@ class TenantIsolatedVectorDB:
                 "tenant": tenant_slug,
                 "collection": collection_name,
                 "status": "exists",
-                "points_count": collection_info.points_count,
-                "vectors_count": collection_info.vectors_count
+                "points_count": getattr(collection_info, "points_count", 0),
+                "vectors_count": getattr(collection_info, "vectors_count", 0)
             }
         except Exception as e:
             return {
@@ -138,8 +142,8 @@ def setup_all_tenants_from_mongodb():
         from pymongo import MongoClient
         
         # MongoDB bağlantısı
-        mongo_client = MongoClient("mongodb://localhost:27017/")
-        db = mongo_client["airqoonBaseMapDB"]
+        mongo_client = MongoClient(MONGO_URI)
+        db = mongo_client[MONGO_DB]
         tenants_collection = db["Tenants"]
         
         # Tüm tenant'ları al
