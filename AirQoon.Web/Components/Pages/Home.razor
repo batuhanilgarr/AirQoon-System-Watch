@@ -1,7 +1,91 @@
-﻿@page "/"
+@page "/"
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Dashboard</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="aq-container">
+    <div class="aq-hero">
+        <div class="aq-hero-content">
+            <h1 class="aq-hero-title">Hava Kalitesi Analiz Merkezi</h1>
+            <p class="aq-hero-subtitle">
+                Tenant bazlı hava kalitesi verilerinizi analiz edin, karşılaştırmalar yapın ve önceki analizlerden RAG ile faydalanın.
+            </p>
+            <div class="aq-hero-actions">
+                <a class="aq-btn aq-btn-primary" href="/chat">
+                    <i class="fa-solid fa-comments" aria-hidden="true"></i>
+                    Chat'e Başla
+                </a>
+                <a class="aq-btn aq-btn-secondary" href="/admin/tenants">
+                    <i class="fa-solid fa-gear" aria-hidden="true"></i>
+                    Admin Dashboard
+                </a>
+            </div>
+        </div>
+        <div class="aq-hero-badge">
+            <div class="aq-hero-badge-icon">
+                <i class="fa-solid fa-wind" aria-hidden="true"></i>
+            </div>
+            <div class="aq-hero-badge-text">
+                <div class="aq-hero-badge-title">AirQoon</div>
+                <div class="aq-hero-badge-subtitle">Tenant Isolated • MCP • RAG</div>
+            </div>
+        </div>
+    </div>
 
-Welcome to your new app.
+    <div class="aq-section">
+        <div class="aq-section-header">
+            <h2 class="aq-section-title">Hızlı Aksiyonlar</h2>
+            <div class="aq-section-subtitle">Sık kullanılan sorguları başlat</div>
+        </div>
+        <div class="aq-actions-grid">
+            <a class="aq-action-card" href="/chat">
+                <div class="aq-action-icon aq-action-icon-blue"><i class="fa-solid fa-wind" aria-hidden="true"></i></div>
+                <div class="aq-action-title">PM10 Analizi</div>
+                <div class="aq-action-desc">Son 7 gün ortalama/min/max</div>
+            </a>
+            <a class="aq-action-card" href="/chat">
+                <div class="aq-action-icon aq-action-icon-cyan"><i class="fa-solid fa-smog" aria-hidden="true"></i></div>
+                <div class="aq-action-title">NO2 Trend</div>
+                <div class="aq-action-desc">Zaman aralığı trend analizi</div>
+            </a>
+            <a class="aq-action-card" href="/chat">
+                <div class="aq-action-icon aq-action-icon-amber"><i class="fa-solid fa-chart-bar" aria-hidden="true"></i></div>
+                <div class="aq-action-title">Aylık Karşılaştırma</div>
+                <div class="aq-action-desc">İki ay arasında dramatik değişimler</div>
+            </a>
+            <a class="aq-action-card" href="/admin/analytics">
+                <div class="aq-action-icon aq-action-icon-green"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></div>
+                <div class="aq-action-title">Analytics</div>
+                <div class="aq-action-desc">Tenant bazlı kullanım istatistikleri</div>
+            </a>
+        </div>
+    </div>
+
+    <div class="aq-section">
+        <div class="aq-section-header">
+            <h2 class="aq-section-title">Sistem Durumu</h2>
+            <div class="aq-section-subtitle">Servisler ve entegrasyonlar</div>
+        </div>
+        <div class="aq-stats-grid">
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-blue"><i class="fa-solid fa-database" aria-hidden="true"></i></div>
+                <div class="aq-stat-value">Local</div>
+                <div class="aq-stat-label">PostgreSQL / MongoDB</div>
+            </div>
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-cyan"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></div>
+                <div class="aq-stat-value">Qdrant</div>
+                <div class="aq-stat-label">Vector DB</div>
+            </div>
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-amber"><i class="fa-solid fa-plug" aria-hidden="true"></i></div>
+                <div class="aq-stat-value">MCP</div>
+                <div class="aq-stat-label">Tool Orchestration</div>
+            </div>
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-green"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></div>
+                <div class="aq-stat-value">Isolated</div>
+                <div class="aq-stat-label">Tenant Collections</div>
+            </div>
+        </div>
+    </div>
+</div>

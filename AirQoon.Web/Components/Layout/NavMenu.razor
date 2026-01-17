@@ -1,6 +1,10 @@
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">AirQoon.Web</a>
+<div class="aq-sidebar-brand">
+    <div class="aq-logo">
+        <i class="fa-solid fa-wind"></i>
+    </div>
+    <div class="aq-brand-text">
+        <div class="aq-brand-title">AirQoon</div>
+        <div class="aq-brand-subtitle">Hava Kalitesi Asistanı</div>
     </div>
 </div>
 
@@ -8,45 +12,33 @@
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="flex-column">
+        <div class="aq-nav-section">Menu</div>
+
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
+                <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+                <span>Dashboard</span>
             </NavLink>
         </div>
 
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="chat">
-                <span class="bi bi-chat-dots-fill-nav-menu" aria-hidden="true"></span> Chat
+                <i class="fa-solid fa-comments" aria-hidden="true"></i>
+                <span>Chat</span>
             </NavLink>
         </div>
 
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="admin/tenants">
-                <span class="bi bi-gear-fill-nav-menu" aria-hidden="true"></span> Admin / Tenants
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="admin/mappings">
-                <span class="bi bi-diagram-3-fill-nav-menu" aria-hidden="true"></span> Admin / Domain Mappings
+                <i class="fa-solid fa-gear" aria-hidden="true"></i>
+                <span>Admin Dashboard</span>
             </NavLink>
         </div>
 
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="admin/analytics">
-                <span class="bi bi-bar-chart-fill-nav-menu" aria-hidden="true"></span> Admin / Analytics
+                <i class="fa-solid fa-chart-bar" aria-hidden="true"></i>
+                <span>Analytics</span>
             </NavLink>
         </div>
     </nav>

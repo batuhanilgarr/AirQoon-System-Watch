@@ -3,6 +3,29 @@
 
 <PageTitle>Chat</PageTitle>
 
-<h1>Chat</h1>
+<div class="aq-container">
+    <div class="aq-page-header">
+        <div>
+            <h1 class="aq-page-title">Chat</h1>
+            <div class="aq-page-subtitle">Tenant bazlı hava kalitesi sorguları ve analizler</div>
+        </div>
+        <div class="aq-quick-actions">
+            <a class="aq-pill" href="#" onclick="return false;">
+                <i class="fa-solid fa-wind" aria-hidden="true"></i>
+                PM10 Analizi
+            </a>
+            <a class="aq-pill" href="#" onclick="return false;">
+                <i class="fa-solid fa-smog" aria-hidden="true"></i>
+                NO2 Trend
+            </a>
+            <a class="aq-pill" href="#" onclick="return false;">
+                <i class="fa-solid fa-chart-bar" aria-hidden="true"></i>
+                Aylık Karşılaştırma
+            </a>
+        </div>
+    </div>
 
-<ChatWidget />
+    <div class="aq-chat-shell">
+        <ChatWidget />
+    </div>
+</div>
