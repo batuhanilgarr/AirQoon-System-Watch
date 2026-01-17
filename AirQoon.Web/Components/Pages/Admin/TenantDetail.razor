@@ -1,0 +1,91 @@
+@page "/admin/tenants/{TenantSlug}"
+@rendermode InteractiveServer
+@inject AirQoon.Web.Services.IMongoDbService Mongo
+@inject AirQoon.Web.Services.IAirQualityMcpService Mcp
+
+<PageTitle>Tenant Detail</PageTitle>
+
+<h1>Tenant Detail</h1>
+
+@if (_loading)
+{
+    <p><em>Loading...</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else if (_tenant is null)
+{
+    <div class="alert alert-warning">Tenant not found.</div>
+}
+else
+{
+    <div class="mb-3">
+        <div><strong>Name:</strong> @_tenant.Name</div>
+        <div><strong>Slug:</strong> <code>@_tenant.SlugName</code></div>
+        <div><strong>Public:</strong> @(_tenant.IsPublic ? "Yes" : "No")</div>
+    </div>
+
+    @if (_stats is not null)
+    {
+        <div class="mb-3">
+            <h5>Statistics</h5>
+            <ul>
+                <li><strong>DeviceCount:</strong> @_stats.DeviceCount</li>
+                <li><strong>VectorPoints:</strong> @_stats.VectorPoints</li>
+                <li><strong>IsPublic:</strong> @_stats.IsPublic</li>
+            </ul>
+        </div>
+    }
+
+    <h5>Devices (first @(_devices.Count))</h5>
+    <table class="table table-sm table-striped">
+        <thead>
+            <tr>
+                <th>DeviceId</th>
+                <th>Name</th>
+                <th>Label</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var d in _devices)
+            {
+                <tr>
+                    <td><code>@d.DeviceId</code></td>
+                    <td>@d.Name</td>
+                    <td>@d.Label</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public string TenantSlug { get; set; } = string.Empty;
+
+    private bool _loading = true;
+    private string? _error;
+
+    private AirQoon.Web.Services.MongoModels.TenantInfo? _tenant;
+    private IReadOnlyList<AirQoon.Web.Services.MongoModels.DeviceInfoRecord> _devices = Array.Empty<AirQoon.Web.Services.MongoModels.DeviceInfoRecord>();
+    private AirQoon.Web.Models.Dtos.TenantStatistics? _stats;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _tenant = await Mongo.GetTenantBySlugAsync(TenantSlug);
+            _devices = await Mongo.GetDevicesByTenantSlugAsync(TenantSlug, 100);
+            _stats = await Mcp.GetTenantStatisticsAsync(TenantSlug);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

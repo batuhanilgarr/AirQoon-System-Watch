@@ -1,0 +1,131 @@
+@page "/admin/analytics"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@inject AirQoon.Web.Data.ApplicationDbContext Db
+@inject AirQoon.Web.Services.IMongoDbService Mongo
+
+<PageTitle>Analytics</PageTitle>
+
+<h1>Analytics</h1>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label">Tenant</label>
+                <select class="form-select" @bind="_selectedTenant">
+                    <option value="">(All)</option>
+                    @foreach (var t in _tenants)
+                    {
+                        <option value="@t.SlugName">@t.Name (@t.SlugName)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary w-100" @onclick="ReloadAsync">Refresh</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else if (_loading)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-md-4">
+            <AirQualityCard Title="Sessions" Subtitle="Tenant filtered" Items="_sessionCard" />
+        </div>
+        <div class="col-md-4">
+            <AirQualityCard Title="Messages" Subtitle="Tenant filtered" Items="_messageCard" />
+        </div>
+        <div class="col-md-4">
+            <AirQualityCard Title="Last Activity" Subtitle="Tenant filtered" Items="_activityCard" />
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+
+    private string _selectedTenant = string.Empty;
+    private IReadOnlyList<AirQoon.Web.Services.MongoModels.TenantInfo> _tenants = Array.Empty<AirQoon.Web.Services.MongoModels.TenantInfo>();
+
+    private IReadOnlyList<(string Key, string Value)> _sessionCard = Array.Empty<(string Key, string Value)>();
+    private IReadOnlyList<(string Key, string Value)> _messageCard = Array.Empty<(string Key, string Value)>();
+    private IReadOnlyList<(string Key, string Value)> _activityCard = Array.Empty<(string Key, string Value)>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _tenants = await Mongo.GetTenantsAsync(500);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            IQueryable<AirQoon.Web.Data.Entities.ChatSession> sessions = Db.ChatSessions.AsNoTracking();
+            if (!string.IsNullOrWhiteSpace(_selectedTenant))
+            {
+                sessions = sessions.Where(s => s.TenantSlug == _selectedTenant);
+            }
+
+            var sessionIds = await sessions.Select(s => s.SessionId).ToListAsync();
+
+            var sessionCount = sessionIds.Count;
+            var activeCount = await sessions.CountAsync(s => s.IsActive);
+
+            var messagesCount = await Db.ChatMessages.AsNoTracking().CountAsync(m => sessionIds.Contains(m.SessionId));
+            var userMessages = await Db.ChatMessages.AsNoTracking().CountAsync(m => sessionIds.Contains(m.SessionId) && m.IsUser);
+
+            var lastActivity = await sessions.MaxAsync(s => (DateTime?)s.LastActivityAt);
+
+            _sessionCard = new List<(string, string)>
+            {
+                ("Total", sessionCount.ToString()),
+                ("Active", activeCount.ToString())
+            };
+
+            _messageCard = new List<(string, string)>
+            {
+                ("Total", messagesCount.ToString()),
+                ("User", userMessages.ToString())
+            };
+
+            _activityCard = new List<(string, string)>
+            {
+                ("LastActivityAt", lastActivity?.ToString("u") ?? "N/A")
+            };
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

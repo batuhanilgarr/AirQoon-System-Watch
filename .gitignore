@@ -19,6 +19,8 @@ ENV/
 *.sql
 *.dump
 
+!docker/*.sql
+
 # Environment variables
 .env
 .env.local
@@ -31,6 +33,10 @@ ENV/
 *.swo
 *~
 .DS_Store
+
+# .NET build artifacts
+**/bin/
+**/obj/
 
 # MCP Config (may contain sensitive paths)
 # mcp_config.json

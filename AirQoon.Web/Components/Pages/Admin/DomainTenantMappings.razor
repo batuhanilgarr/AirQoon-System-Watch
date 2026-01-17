@@ -1,0 +1,166 @@
+@page "/admin/mappings"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@inject AirQoon.Web.Data.ApplicationDbContext Db
+@inject AirQoon.Web.Services.IMongoDbService Mongo
+
+<PageTitle>Domain → Tenant Mappings</PageTitle>
+
+<h1>Domain → Tenant Mappings</h1>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h5 class="card-title">Create / Update Mapping</h5>
+        <div class="row g-2">
+            <div class="col-md-5">
+                <input class="form-control" placeholder="Domain (e.g. example.com)" @bind="_domain" />
+            </div>
+            <div class="col-md-5">
+                <input class="form-control" placeholder="TenantSlug (e.g. akcansa)" @bind="_tenantSlug" />
+            </div>
+            <div class="col-md-2 d-flex align-items-center">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" @bind="_isActive" />
+                    <label class="form-check-label">Active</label>
+                </div>
+            </div>
+            <div class="col-12 d-flex gap-2 justify-content-end">
+                <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
+                <button class="btn btn-outline-secondary" @onclick="Reset">Reset</button>
+            </div>
+        </div>
+        @if (_validation is not null)
+        {
+            <div class="alert alert-warning mt-2">@_validation</div>
+        }
+    </div>
+</div>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Domain</th>
+            <th>TenantSlug</th>
+            <th>Active</th>
+            <th>UpdatedAt</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var m in _mappings)
+        {
+            <tr>
+                <td>@m.Domain</td>
+                <td><code>@m.TenantSlug</code></td>
+                <td>@(m.IsActive ? "Yes" : "No")</td>
+                <td>@m.UpdatedAt.ToString("u")</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="(() => Edit(m.Id))">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="(() => DeleteAsync(m.Id))">Delete</button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private string? _error;
+    private string? _validation;
+
+    private string _domain = string.Empty;
+    private string _tenantSlug = string.Empty;
+    private bool _isActive = true;
+
+    private List<AirQoon.Web.Data.Entities.DomainTenantMapping> _mappings = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _mappings = await Db.DomainTenantMappings
+            .OrderByDescending(x => x.UpdatedAt)
+            .ToListAsync();
+    }
+
+    private void Reset()
+    {
+        _domain = string.Empty;
+        _tenantSlug = string.Empty;
+        _isActive = true;
+        _validation = null;
+    }
+
+    private void Edit(int id)
+    {
+        var m = _mappings.FirstOrDefault(x => x.Id == id);
+        if (m is null) return;
+        _domain = m.Domain;
+        _tenantSlug = m.TenantSlug;
+        _isActive = m.IsActive;
+        _validation = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+        _validation = null;
+
+        var domain = (_domain ?? string.Empty).Trim().ToLowerInvariant();
+        var tenantSlug = (_tenantSlug ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(tenantSlug))
+        {
+            _validation = "Domain and TenantSlug are required.";
+            return;
+        }
+
+        if (!await Mongo.TenantExistsAsync(tenantSlug))
+        {
+            _validation = "TenantSlug not found in MongoDB.";
+            return;
+        }
+
+        var existing = await Db.DomainTenantMappings.FirstOrDefaultAsync(x => x.Domain == domain);
+        if (existing is null)
+        {
+            existing = new AirQoon.Web.Data.Entities.DomainTenantMapping
+            {
+                Domain = domain,
+                TenantSlug = tenantSlug,
+                IsActive = _isActive,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            Db.DomainTenantMappings.Add(existing);
+        }
+        else
+        {
+            existing.TenantSlug = tenantSlug;
+            existing.IsActive = _isActive;
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await Db.SaveChangesAsync();
+        await ReloadAsync();
+        Reset();
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        _error = null;
+        var m = await Db.DomainTenantMappings.FirstOrDefaultAsync(x => x.Id == id);
+        if (m is null) return;
+
+        Db.DomainTenantMappings.Remove(m);
+        await Db.SaveChangesAsync();
+        await ReloadAsync();
+    }
+}

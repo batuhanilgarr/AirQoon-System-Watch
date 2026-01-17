@@ -1,0 +1,64 @@
+@page "/admin/tenants"
+@rendermode InteractiveServer
+@inject AirQoon.Web.Services.IMongoDbService Mongo
+
+<PageTitle>Tenants</PageTitle>
+
+<h1>Tenants</h1>
+
+@if (_loading)
+{
+    <p><em>Loading...</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Slug</th>
+                <th>Name</th>
+                <th>Public</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var t in _tenants)
+            {
+                <tr>
+                    <td><code>@t.SlugName</code></td>
+                    <td>@t.Name</td>
+                    <td>@(t.IsPublic ? "Yes" : "No")</td>
+                    <td>
+                        <a class="btn btn-sm btn-outline-primary" href="/admin/tenants/@t.SlugName">Details</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private IReadOnlyList<AirQoon.Web.Services.MongoModels.TenantInfo> _tenants = Array.Empty<AirQoon.Web.Services.MongoModels.TenantInfo>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _tenants = await Mongo.GetTenantsAsync(limit: 200);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

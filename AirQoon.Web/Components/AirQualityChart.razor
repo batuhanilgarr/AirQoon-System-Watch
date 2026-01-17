@@ -1,0 +1,52 @@
+@inject IJSRuntime JS
+
+<div class="card h-100">
+    <div class="card-body h-100">
+        <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-2">@Title</h6>
+        </div>
+
+        <div style="height: 180px;">
+            <canvas id="@_canvasId"></canvas>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public IReadOnlyList<string> Labels { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyList<double> Values { get; set; } = Array.Empty<double>();
+
+    private readonly string _canvasId = $"aqc_{Guid.NewGuid():N}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await RenderAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await RenderAsync();
+    }
+
+    private async Task RenderAsync()
+    {
+        if (Labels.Count == 0 || Values.Count == 0 || Labels.Count != Values.Count)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("airqoonCharts.renderLineChart", _canvasId, Labels.ToArray(), Values.ToArray(), Title);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("airqoonCharts.destroy", _canvasId);
+        }
+        catch
+        {
+        }
+    }
+}
