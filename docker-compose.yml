@@ -5,12 +5,76 @@ services:
     image: qdrant/qdrant:latest
     container_name: airqoon-qdrant
     ports:
-      - "6333:6333"  # REST API
-      - "6334:6334"  # gRPC
+      - "127.0.0.1:${QDRANT_PORT:-6333}:6333"  # REST API
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"  # gRPC
     volumes:
       - qdrant_storage:/qdrant/storage
     environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__GRPC_PORT=${QDRANT_GRPC_PORT:-6334}
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - airqoon-network
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: airqoon-mcp
+    environment:
+      MCP_HTTP: "1"
+      MCP_HTTP_PORT: "5005"
+      MONGO_URI: ${MONGO_URI:-${LOCAL_MONGO_URI:-mongodb://host.docker.internal:27017/}}
+      PGHOST: ${PGHOST:-host.docker.internal}
+      PGDATABASE: ${PGDATABASE:-airqoon}
+      PGUSER: ${PGUSER:-${LOCAL_PG_USER:-${USER}}}
+      PGPASSWORD: ${PGPASSWORD:-${LOCAL_PG_PASSWORD:-}}
+      PGPORT: ${PGPORT:-5432}
+      QDRANT_HOST: ${QDRANT_HOST:-qdrant}
+      QDRANT_PORT: ${QDRANT_PORT:-6333}
+    ports:
+      - "127.0.0.1:${MCP_PORT:-5006}:5005"
+    depends_on:
+      qdrant:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - airqoon-network
+
+  web:
+    build:
+      context: .
+      dockerfile: AirQoon.Web/Dockerfile
+    container_name: airqoon-web
+    environment:
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: ${CONNECTIONSTRINGS__DEFAULTCONNECTION:-Host=host.docker.internal;Port=5432;Database=airqoon_chat;Username=${LOCAL_PG_USER:-${USER}};Password=${LOCAL_PG_PASSWORD:-}}
+      ConnectionStrings__AirQualityConnection: ${CONNECTIONSTRINGS__AIRQUALITYCONNECTION:-Host=host.docker.internal;Port=5432;Database=airqoon;Username=${LOCAL_PG_USER:-${USER}};Password=${LOCAL_PG_PASSWORD:-}}
+      Mongo__ConnectionString: ${MONGO__CONNECTIONSTRING:-${LOCAL_MONGO_URI:-mongodb://host.docker.internal:27017}}
+      Mongo__Database: ${MONGO__DATABASE:-airqoonBaseMapDB}
+      Qdrant__Host: ${QDRANT__HOST:-http://qdrant:6333}
+      Mcp__HttpBaseUrl: ${MCP__HTTPBASEURL:-http://mcp:5005}
+    ports:
+      - "${WEB_PORT:-8081}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      qdrant:
+        condition: service_started
+      mcp:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - airqoon-network
