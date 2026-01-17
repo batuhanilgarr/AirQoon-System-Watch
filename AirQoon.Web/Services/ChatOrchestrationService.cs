@@ -152,6 +152,8 @@ public class ChatOrchestrationService : IChatOrchestrationService
             }
         }
 
+        reply = CleanReply(reply);
+
         userEntity.ParametersJson = parameters is null ? null : JsonSerializer.Serialize(parameters, JsonOptions);
 
         var assistantEntity = new ChatMessage
@@ -180,6 +182,26 @@ public class ChatOrchestrationService : IChatOrchestrationService
         };
     }
 
+    private static string CleanReply(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return text;
+        }
+
+        // Remove MCP "vector DB'e kaydedildi" informational blocks from the visible reply.
+        text = Regex.Replace(text, @"(?is)\n*✅\s*\*\*Analiz\s+vector\s+database['’]?e\s+kaydedildi\*\*.*?(\n\n|$)", "\n\n");
+        text = Regex.Replace(text, @"(?im)^Artık\s+RAG\s+ile\s+arama\s+yapabilirsiniz\.?\s*$", string.Empty);
+
+        // If RAG section exists but says 0 results, drop the whole RAG section.
+        if (Regex.IsMatch(text, @"(?is)##\s*İlgili\s+önceki\s+analizler\s*\(RAG\).*?(Bulunan\s+Sonuç\s*:\s*0|0\s+adet|bulunamadı)"))
+        {
+            text = Regex.Replace(text, @"(?is)\n\n---\n\n##\s*İlgili\s+önceki\s+analizler\s*\(RAG\)\s*.*$", string.Empty);
+        }
+
+        return text.Trim();
+    }
+
     private async Task<string?> BuildRagEnrichmentAsync(string tenantSlug, string queryText, CancellationToken cancellationToken)
     {
         try
@@ -203,6 +225,13 @@ public class ChatOrchestrationService : IChatOrchestrationService
             // Our MCP client returns formatted markdown text in the first result.
             // Keep it short to avoid flooding chat.
             var text = results[0].Text ?? string.Empty;
+
+            // Some MCP responses include a formatted "0 results" message; treat it as empty.
+            if (Regex.IsMatch(text, @"(?is)(Bulunan\s+Sonuç\s*:\s*0|0\s+adet|bulunamadı)") )
+            {
+                return null;
+            }
+
             if (text.Length > 1200)
             {
                 text = text[..1200] + "...";

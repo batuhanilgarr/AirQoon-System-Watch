@@ -2,6 +2,8 @@
 @using System.Text
 @using AirQoon.Web.Services
 @using AirQoon.Web.Models.Chat
+@using Markdig
+@using Microsoft.AspNetCore.Components
 @inject NavigationManager Nav
 @inject IChatOrchestrationService Chat
 @inject IJSRuntime Js
@@ -27,7 +29,14 @@
         {
             <div class="mb-2">
                 <div class="fw-bold">@(m.IsUser ? "Sen" : "Asistan")</div>
-                <div style="white-space: pre-wrap;">@m.Text</div>
+                @if (m.IsUser)
+                {
+                    <div style="white-space: pre-wrap;">@m.Text</div>
+                }
+                else
+                {
+                    <div class="aq-md">@((MarkupString)RenderMarkdown(m.Text))</div>
+                }
             </div>
         }
     </div>
@@ -478,6 +487,16 @@
     }
 
     private sealed record ChatLine(bool IsUser, string Text, DateTime Timestamp);
+
+    private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .Build();
+
+    private static string RenderMarkdown(string? markdown)
+    {
+        var text = markdown ?? string.Empty;
+        return Markdig.Markdown.ToHtml(text, MarkdownPipeline);
+    }
 
     private sealed class CardModel
     {
