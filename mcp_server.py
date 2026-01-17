@@ -396,11 +396,13 @@ async def handle_time_range_analysis(arguments: Dict) -> List[TextContent]:
                 "analysis_type": "time_range_analysis",
                 "start_date": start_date,
                 "end_date": end_date,
-                "comparison_start_date": comparison_start,
-                "comparison_end_date": comparison_end,
                 "tenant_name": tenant.get('Name', tenant_slug),
                 "device_count": len(device_ids)
             }
+            # Karşılaştırma tarihlerini sadece varsa ekle
+            if comparison_start and comparison_end:
+                analysis_metadata["comparison_start_date"] = comparison_start
+                analysis_metadata["comparison_end_date"] = comparison_end
             
             vector_id = vector_api.save_analysis(
                 tenant_slug=tenant_slug,
