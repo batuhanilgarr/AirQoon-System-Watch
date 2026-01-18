@@ -27,6 +27,7 @@ except ImportError:
 import json
 
 from flask import Flask, request, jsonify
+import threading
 
 # Database connections
 from pymongo import MongoClient
@@ -43,6 +44,9 @@ server = Server("airqoon-analyzer")
 mongo_client = None
 pg_conn = None
 vector_api = None
+
+# HTTP readiness flag (used by /healthz). We treat MCP as "ready" once the embedding model warm-up completes.
+_http_ready = threading.Event()
 
 def get_mongo_client():
     """MongoDB client'ı döndür (singleton)"""
@@ -690,6 +694,8 @@ def run_http_server():
 
     @app.get("/healthz")
     def healthz():
+        if not _http_ready.is_set():
+            return jsonify({"status": "starting"}), 503
         return jsonify({"status": "ok"})
 
     @app.post("/call_tool")
@@ -714,18 +720,19 @@ def run_http_server():
     # Start it in a background thread (non-blocking). Can be disabled by setting MCP_WARMUP=0.
     if os.getenv("MCP_WARMUP", "1") == "1":
         try:
-            import threading
-
             def _warmup():
                 try:
                     from embedding_utils import get_embedding_model
                     get_embedding_model()
+                    _http_ready.set()
                 except Exception as e:
                     print(f"⚠️ MCP warm-up failed: {e}")
 
             threading.Thread(target=_warmup, daemon=True).start()
         except Exception as e:
             print(f"⚠️ MCP warm-up thread start failed: {e}")
+    else:
+        _http_ready.set()
 
     app.run(host="0.0.0.0", port=port, debug=False)
 

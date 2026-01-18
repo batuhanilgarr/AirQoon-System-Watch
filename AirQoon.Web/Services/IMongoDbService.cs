@@ -10,5 +10,7 @@ public interface IMongoDbService
 
     Task<IReadOnlyList<DeviceInfoRecord>> GetDevicesByTenantSlugAsync(string tenantSlug, int limit = 200, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<DeviceInfoRecord>> GetDevicesAsync(int limit = 1000, CancellationToken cancellationToken = default);
+
     Task<bool> TenantExistsAsync(string tenantSlug, CancellationToken cancellationToken = default);
 }

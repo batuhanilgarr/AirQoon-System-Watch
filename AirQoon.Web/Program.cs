@@ -10,6 +10,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddMemoryCache();
 
+builder.Services.AddHttpClient();
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -33,6 +35,10 @@ builder.Services.AddScoped<IAirQualityMcpService, AirQualityMcpService>();
 builder.Services.AddScoped<IChatOrchestrationService, ChatOrchestrationService>();
 
 builder.Services.AddScoped<ILlmService, LlmService>();
+
+builder.Services.AddScoped<IResponseValidationService, ResponseValidationService>();
+
+builder.Services.AddScoped<IAverageContextService, AverageContextService>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

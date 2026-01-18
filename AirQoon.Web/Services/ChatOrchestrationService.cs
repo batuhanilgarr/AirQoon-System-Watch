@@ -7,6 +7,7 @@ using AirQoon.Web.Models.Chat;
 using AirQoon.Web.Services.MongoModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace AirQoon.Web.Services;
 
@@ -18,6 +19,8 @@ public class ChatOrchestrationService : IChatOrchestrationService
     private readonly IPostgresAirQualityService _airQuality;
     private readonly IAirQualityMcpService _mcp;
     private readonly ILlmService _llm;
+    private readonly IResponseValidationService _validation;
+    private readonly IAverageContextService _averageContext;
     private readonly ILogger<ChatOrchestrationService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -29,6 +32,8 @@ public class ChatOrchestrationService : IChatOrchestrationService
         IPostgresAirQualityService airQuality,
         IAirQualityMcpService mcp,
         ILlmService llm,
+        IResponseValidationService validation,
+        IAverageContextService averageContext,
         ILogger<ChatOrchestrationService> logger)
     {
         _db = db;
@@ -37,6 +42,8 @@ public class ChatOrchestrationService : IChatOrchestrationService
         _airQuality = airQuality;
         _mcp = mcp;
         _llm = llm;
+        _validation = validation;
+        _averageContext = averageContext;
         _logger = logger;
     }
 
@@ -112,6 +119,27 @@ public class ChatOrchestrationService : IChatOrchestrationService
 
         try
         {
+            // Tenant-specific topic restriction (akcansa): redirect environment/general policy questions.
+            if (string.Equals(session.TenantSlug, "akcansa", StringComparison.OrdinalIgnoreCase))
+            {
+                var normMsg = userMessage.ToLowerInvariant()
+                    .Replace('ı', 'i').Replace('ş', 's').Replace('ğ', 'g').Replace('ü', 'u').Replace('ö', 'o').Replace('ç', 'c');
+
+                if (normMsg.Contains("cevre") || normMsg.Contains("environment"))
+                {
+                    reply = "Üzgünüm, sadece hava kalitesi ölçüm verileri ve analizleri hakkında bilgi verebilirim. \n" +
+                            "Lütfen hava kalitesi ile ilgili teknik sorular sorun.";
+                    parameters = new Dictionary<string, object?>
+                    {
+                        ["tenantSlug"] = session.TenantSlug,
+                        ["restriction"] = "environment_topic"
+                    };
+
+                    // Skip downstream processing (MCP/RAG/averages) for restricted topic.
+                    goto AfterProcessing;
+                }
+            }
+
             if (intent == IntentType.AirQualityQuery)
             {
                 var result = await HandleAirQualityQueryAsync(session, context, userMessage, cancellationToken);
@@ -137,12 +165,57 @@ public class ChatOrchestrationService : IChatOrchestrationService
 
             if (!string.IsNullOrWhiteSpace(session.TenantSlug))
             {
+                // Add RAG enrichment (previous analyses)
                 var rag = await BuildRagEnrichmentAsync(session.TenantSlug, userMessage, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(rag))
                 {
                     reply += $"\n\n---\n\n## İlgili önceki analizler (RAG)\n\n{rag}";
                 }
+                
+                // Add averages context (last 30 days) - only for statistical/comparison queries
+                if (intent == IntentType.StatisticalAnalysis || intent == IntentType.ComparisonAnalysis)
+                {
+                    var averagesContext = await BuildAveragesContextAsync(session.TenantSlug, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(averagesContext))
+                    {
+                        reply += $"\n\n---\n\n{averagesContext}";
+                    }
+                }
             }
+
+            AfterProcessing:;
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("MCP servisi bağlantı hatası") ||
+            ex.Message.Contains("MCP servisi HTTP hatası") ||
+            ex.Message.Contains("MCP servisi")
+        )
+        {
+            _logger.LogError(ex, "MCP service connection error. SessionId={SessionId} Tenant={TenantSlug}", session.SessionId, session.TenantSlug);
+            errorMessage = ex.ToString();
+            responseJson = JsonSerializer.Serialize(new { error = "MCP_CONNECTION_REFUSED", message = ex.Message }, JsonOptions);
+
+            reply = "⚠️ Analiz servisi şu anda kullanılamıyor.\n\n" +
+                    "MCP sunucusunun çalıştığından emin olun:\n" +
+                    "```bash\n" +
+                    "# MCP servisini başlatmak için:\n" +
+                    "docker-compose up -d mcp\n" +
+                    "# veya\n" +
+                    "python3 mcp_server.py\n" +
+                    "```\n\n" +
+                    "Daha sonra tekrar deneyin.";
+        }
+        catch (TimeoutException ex)
+        {
+            _logger.LogError(ex, "MCP service timeout. SessionId={SessionId} Tenant={TenantSlug}", session.SessionId, session.TenantSlug);
+            errorMessage = ex.ToString();
+            responseJson = JsonSerializer.Serialize(new { error = "MCP_TIMEOUT", message = ex.Message }, JsonOptions);
+
+            reply = "⏱️ İstek zaman aşımına uğradı.\n\n" +
+                    "Analiz servisi yanıt vermedi. Lütfen:\n" +
+                    "- Daha kısa bir tarih aralığı deneyin\n" +
+                    "- Birkaç saniye bekleyip tekrar deneyin\n" +
+                    "- MCP servisinin sağlıklı olduğunu kontrol edin";
         }
         catch (Exception ex)
         {
@@ -163,6 +236,9 @@ public class ChatOrchestrationService : IChatOrchestrationService
         }
 
         reply = CleanReply(reply);
+        
+        // Validate and filter response based on tenant rules (eval system)
+        reply = await _validation.ValidateResponseAsync(reply, session.TenantSlug, userMessage, cancellationToken);
 
         userEntity.ParametersJson = parameters is null ? null : JsonSerializer.Serialize(parameters, JsonOptions);
 
@@ -255,6 +331,28 @@ public class ChatOrchestrationService : IChatOrchestrationService
         }
     }
 
+    private async Task<string?> BuildAveragesContextAsync(string tenantSlug, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(3));
+
+            var context = await _averageContext.BuildAveragesContextAsync(
+                tenantSlug,
+                daysBack: 30,
+                avgType: "24h_rolling",
+                cancellationToken: cts.Token);
+
+            return context;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to build averages context for tenant: {TenantSlug}", tenantSlug);
+            return null;
+        }
+    }
+
     private IntentType DetectIntent(string message)
     {
         var m = message.ToLowerInvariant();
@@ -305,6 +403,24 @@ public class ChatOrchestrationService : IChatOrchestrationService
                 IsActive = true
             };
             _db.ChatSessions.Add(session);
+
+            // Persist early to avoid duplicate PK insert on concurrent requests.
+            // If another request creates the same SessionId concurrently, reload existing session.
+            try
+            {
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException pgEx && pgEx.SqlState == "23505")
+            {
+                _logger.LogWarning(ex, "Chat session insert raced (duplicate key). Reloading existing session. SessionId={SessionId}", sessionId);
+
+                _db.ChangeTracker.Clear();
+                session = await _db.ChatSessions.FirstOrDefaultAsync(x => x.SessionId == sessionId, cancellationToken);
+                if (session is null)
+                {
+                    throw;
+                }
+            }
         }
         else
         {
@@ -480,6 +596,15 @@ public class ChatOrchestrationService : IChatOrchestrationService
                     $"Minimum: {Format(a.Minimum)} {unit}\n" +
                     $"Maksimum: {Format(a.Maximum)} {unit}\n" +
                     $"Ölçüm sayısı: {a.MeasurementCount}";
+
+        // If user is explicitly asking about danger/criticality, include a short qualitative sentence.
+        // For tenants like akcansa, ResponseValidationService will soften harsh wording (e.g., "tehlikeli" -> "yüksek").
+        var msgNorm = message.ToLowerInvariant()
+            .Replace('ı', 'i').Replace('ş', 's').Replace('ğ', 'g').Replace('ü', 'u').Replace('ö', 'o').Replace('ç', 'c');
+        if (msgNorm.Contains("tehlikeli") || msgNorm.Contains("kritik"))
+        {
+            reply += "\n\nNot: Bu değerlerin tehlikeli olup olmadığını değerlendirmek için mevzuat limitleri ve ölçüm koşullarıyla birlikte yorumlanması gerekir.";
+        }
 
         // Save this query result to vector DB for later RAG (best-effort)
         try

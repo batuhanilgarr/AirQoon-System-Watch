@@ -1,10 +1,27 @@
 @page "/admin/tenants"
 @rendermode InteractiveServer
 @inject AirQoon.Web.Services.IMongoDbService Mongo
+@inject AirQoon.Web.Services.IPostgresAirQualityService AirQuality
 
 <PageTitle>Tenants</PageTitle>
 
-<h1>Tenants</h1>
+<div class="aq-container">
+    <div class="aq-page-header">
+        <div>
+            <h1 class="aq-page-title">Admin • Tenants</h1>
+            <div class="aq-page-subtitle">Tenant listesi, filtreleme ve hızlı aksiyonlar</div>
+        </div>
+        <div class="aq-quick-actions">
+            <a class="aq-pill" href="/">
+                <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
+                Dashboard
+            </a>
+            <a class="aq-pill" href="/admin/analytics">
+                <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+                Analytics
+            </a>
+        </div>
+    </div>
 
 @if (_loading)
 {
@@ -16,41 +33,163 @@ else if (_error is not null)
 }
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Slug</th>
-                <th>Name</th>
-                <th>Public</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var t in _tenants)
-            {
+    <div class="aq-admin-toolbar">
+        <div class="aq-admin-search">
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <input class="form-control" placeholder="Ara: slug veya isim" @bind="_search" @bind:event="oninput" />
+        </div>
+        <div class="aq-admin-filters">
+            <select class="form-select" @bind="_publicFilter">
+                <option value="all">Tümü</option>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="aq-table-wrap">
+        <table class="table aq-table">
+            <thead>
                 <tr>
-                    <td><code>@t.SlugName</code></td>
-                    <td>@t.Name</td>
-                    <td>@(t.IsPublic ? "Yes" : "No")</td>
-                    <td>
-                        <a class="btn btn-sm btn-outline-primary" href="/admin/tenants/@t.SlugName">Details</a>
-                    </td>
+                    <th>Slug</th>
+                    <th>Name</th>
+                    <th class="text-center">Devices</th>
+                    <th>Last Activity</th>
+                    <th>Status</th>
+                    <th class="text-center">Public</th>
+                    <th class="text-end">Actions</th>
                 </tr>
-            }
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                @foreach (var t in FilteredTenants)
+                {
+                    <tr>
+                        <td><code>@t.Slug</code></td>
+                        <td>@(string.IsNullOrWhiteSpace(t.Name) ? "-" : t.Name)</td>
+                        <td class="text-center">@t.DeviceCount</td>
+                        <td>@(t.LastActivityUtc.HasValue ? t.LastActivityUtc.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm") : "-")</td>
+                        <td>
+                            <span class="aq-badge @(t.IsActive ? "aqi-good" : "aq-badge-muted")">@(t.IsActive ? "Active" : "Inactive")</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="aq-badge @(t.IsPublic ? "aqi-good" : "aq-badge-muted")">@(t.IsPublic ? "Public" : "Private")</span>
+                        </td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-primary" href="/admin/tenants/@t.Slug">Details</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
 }
+
+</div>
 
 @code {
     private bool _loading = true;
     private string? _error;
-    private IReadOnlyList<AirQoon.Web.Services.MongoModels.TenantInfo> _tenants = Array.Empty<AirQoon.Web.Services.MongoModels.TenantInfo>();
+    private IReadOnlyList<TenantListItem> _tenants = Array.Empty<TenantListItem>();
+
+    private string _search = string.Empty;
+    private string _publicFilter = "all";
+
+    private IEnumerable<TenantListItem> FilteredTenants
+    {
+        get
+        {
+            IEnumerable<TenantListItem> query = _tenants;
+
+            if (_publicFilter == "public")
+            {
+                query = query.Where(x => x.IsPublic);
+            }
+            else if (_publicFilter == "private")
+            {
+                query = query.Where(x => !x.IsPublic);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var s = _search.Trim();
+                query = query.Where(x =>
+                    (!string.IsNullOrWhiteSpace(x.Slug) && x.Slug.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrWhiteSpace(x.Name) && x.Name.Contains(s, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            return query;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            _tenants = await Mongo.GetTenantsAsync(limit: 200);
+            var tenants = await Mongo.GetTenantsAsync(limit: 200);
+            var allDevices = await Mongo.GetDevicesAsync(limit: 5000);
+            var devicesByTenant = allDevices
+                .Where(d => !string.IsNullOrWhiteSpace(d.TenantSlugName))
+                .GroupBy(d => d.TenantSlugName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+            var allDeviceIds = allDevices
+                .Select(d => d.DeviceId)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var lastByDevice = allDeviceIds.Count == 0
+                ? new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, DateTime>(
+                    await AirQuality.GetLatestTelemetryAverageTimestampsAsync(
+                        allDeviceIds,
+                        avgTypes: new[] { "24h_rolling", "1h", "8h_rolling" }),
+                    StringComparer.OrdinalIgnoreCase);
+
+            var now = DateTime.UtcNow;
+            var items = new List<TenantListItem>(tenants.Count);
+            foreach (var t in tenants)
+            {
+                var devices = devicesByTenant.TryGetValue(t.SlugName, out var list)
+                    ? list
+                    : new List<AirQoon.Web.Services.MongoModels.DeviceInfoRecord>();
+
+                var deviceIds = devices
+                    .Select(d => d.DeviceId)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                DateTime? lastActivityUtc = null;
+                if (deviceIds.Count > 0)
+                {
+                    foreach (var id in deviceIds)
+                    {
+                        if (!lastByDevice.TryGetValue(id, out var ts))
+                        {
+                            continue;
+                        }
+
+                        if (!lastActivityUtc.HasValue || ts > lastActivityUtc.Value)
+                        {
+                            lastActivityUtc = ts;
+                        }
+                    }
+                }
+
+                var isActive = lastActivityUtc.HasValue && lastActivityUtc.Value > now.AddDays(-7);
+
+                items.Add(new TenantListItem(
+                    Slug: t.SlugName,
+                    Name: string.IsNullOrWhiteSpace(t.Name) ? t.SlugName : t.Name!,
+                    IsPublic: t.IsPublic,
+                    DeviceCount: deviceIds.Count,
+                    LastActivityUtc: lastActivityUtc,
+                    IsActive: isActive
+                ));
+            }
+
+            _tenants = items;
         }
         catch (Exception ex)
         {
@@ -61,4 +200,12 @@ else
             _loading = false;
         }
     }
+
+    private sealed record TenantListItem(
+        string Slug,
+        string Name,
+        bool IsPublic,
+        int DeviceCount,
+        DateTime? LastActivityUtc,
+        bool IsActive);
 }

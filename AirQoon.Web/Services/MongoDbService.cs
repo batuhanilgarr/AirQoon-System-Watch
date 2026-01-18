@@ -44,6 +44,25 @@ public class MongoDbService : IMongoDbService
         return result;
     }
 
+    public async Task<IReadOnlyList<DeviceInfoRecord>> GetDevicesAsync(int limit = 1000, CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 5000);
+
+        var cacheKey = $"mongo:devices:all:{limit}";
+        if (_cache.TryGetValue(cacheKey, out IReadOnlyList<DeviceInfoRecord>? cached) && cached is not null)
+        {
+            return cached;
+        }
+
+        var result = await _devices
+            .Find(Builders<DeviceInfoRecord>.Filter.Empty)
+            .Limit(limit)
+            .ToListAsync(cancellationToken);
+
+        _cache.Set(cacheKey, result, new MemoryCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(2) });
+        return result;
+    }
+
     public async Task<TenantInfo?> GetTenantBySlugAsync(string tenantSlug, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(tenantSlug))

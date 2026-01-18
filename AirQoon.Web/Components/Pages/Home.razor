@@ -1,4 +1,16 @@
 @page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+
+@using AirQoon.Web.Models.Dtos
+@using AirQoon.Web.Services
+@using AirQoon.Web.Services.MongoModels
+
+@inject IMongoDbService Mongo
+@inject IPostgresAirQualityService AirQuality
+@inject IHttpClientFactory HttpClientFactory
+@inject IConfiguration Config
+@inject NavigationManager Nav
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -27,6 +39,161 @@
             <div class="aq-hero-badge-text">
                 <div class="aq-hero-badge-title">AirQoon</div>
                 <div class="aq-hero-badge-subtitle">Tenant Isolated • MCP • RAG</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="aq-section">
+        <div class="aq-section-header">
+            <h2 class="aq-section-title">Tenant Özeti</h2>
+            <div class="aq-section-subtitle">En aktif tenant'lar</div>
+        </div>
+        <div class="aq-tenant-grid">
+            @foreach (var t in _topTenants)
+            {
+                <div class="aq-tenant-card">
+                    <div class="aq-tenant-header">
+                        <div class="aq-tenant-title">@(string.IsNullOrWhiteSpace(t.Name) ? t.SlugName : t.Name)</div>
+                        <div class="aq-tenant-slug">@t.SlugName</div>
+                    </div>
+                    <div class="aq-tenant-metrics">
+                        <div class="aq-tenant-metric">
+                            <div class="aq-tenant-metric-value">@(_tenantDeviceCounts.TryGetValue(t.SlugName, out var c) ? c.ToString() : "-")</div>
+                            <div class="aq-tenant-metric-label">Cihaz</div>
+                        </div>
+                    </div>
+                    <a class="aq-card-action" href="/admin/tenants">Tenant Detayları →</a>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="aq-section">
+        <div class="aq-section-header">
+            <h2 class="aq-section-title">Genel İstatistikler</h2>
+            <div class="aq-section-subtitle">Tenant ve cihaz görünümü</div>
+        </div>
+        <div class="aq-stats-grid">
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-blue"><i class="fa-solid fa-building" aria-hidden="true"></i></div>
+                <div>
+                    <div class="aq-stat-value">@(_tenantsCount?.ToString() ?? "-")</div>
+                    <div class="aq-stat-label">Toplam Tenant</div>
+                </div>
+            </div>
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-cyan"><i class="fa-solid fa-microchip" aria-hidden="true"></i></div>
+                <div>
+                    <div class="aq-stat-value">@(_devicesCount?.ToString() ?? "-")</div>
+                    <div class="aq-stat-label">Toplam Cihaz</div>
+                </div>
+            </div>
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-amber"><i class="fa-solid fa-user-check" aria-hidden="true"></i></div>
+                <div>
+                    <div class="aq-stat-value">@(_defaultTenant?.SlugName ?? "-")</div>
+                    <div class="aq-stat-label">Varsayılan Tenant</div>
+                </div>
+            </div>
+            <div class="aq-stat-card">
+                <div class="aq-stat-icon aq-action-icon-green"><i class="fa-solid fa-clock" aria-hidden="true"></i></div>
+                <div>
+                    <div class="aq-stat-value">@(_lastUpdatedUtc is null ? "-" : _lastUpdatedUtc.Value.ToLocalTime().ToString("HH:mm:ss"))</div>
+                    <div class="aq-stat-label">Son Güncelleme</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="aq-section">
+        <div class="aq-section-header">
+            <h2 class="aq-section-title">Hava Kalitesi Özeti</h2>
+            <div class="aq-section-subtitle">Özet (@_selectedAvgType)</div>
+            <div class="aq-hero-actions" style="margin-top: 8px; display: flex; gap: 8px;">
+                <select class="form-select form-select-sm" style="max-width: 200px;" @bind="_selectedTenantSlug" @bind:after="OnTenantChanged">
+                    @foreach (var t in _allTenants)
+                    {
+                        <option value="@t.SlugName">@(string.IsNullOrWhiteSpace(t.Name) ? t.SlugName : t.Name)</option>
+                    }
+                </select>
+                <select class="form-select form-select-sm" style="max-width: 180px;" @bind="_selectedAvgType" @bind:after="OnAvgTypeChanged">
+                    <option value="1h">1h</option>
+                    <option value="8h_rolling">8h_rolling</option>
+                    <option value="24h_rolling">24h_rolling</option>
+                </select>
+            </div>
+        </div>
+        <div class="aq-pollutants-grid">
+            @foreach (var card in _pollutantCards)
+            {
+                <div class="aq-pollutant-card">
+                    <div class="aq-pollutant-header">
+                        <div class="aq-pollutant-icon @card.IconClass"><i class="@card.Icon" aria-hidden="true"></i></div>
+                        <div class="aq-pollutant-info">
+                            <div class="aq-pollutant-name">@card.Title</div>
+                            <span class="aq-badge @card.BadgeClass">@card.BadgeText</span>
+                        </div>
+                    </div>
+                    <div class="aq-pollutant-device-info">
+                        <span class="aq-device-count">@card.DeviceInfo</span>
+                        <span class="aq-tenant-badge">@card.TenantSlug</span>
+                    </div>
+                    @if (card.DeviceNames.Count > 0)
+                    {
+                        <details class="aq-device-details">
+                            <summary class="aq-device-summary">Cihazlar (@card.DeviceCount)</summary>
+                            <div class="aq-device-list">
+                                @foreach (var name in card.DeviceNames)
+                                {
+                                    <div class="aq-device-item" title="@name">@name</div>
+                                }
+                            </div>
+                        </details>
+                    }
+                    <div class="aq-pollutant-value">
+                        <span class="aq-value">@card.ValueText</span>
+                        <span class="aq-unit">µg/m³</span>
+                    </div>
+                    <div class="aq-pollutant-meta">@card.Subtitle</div>
+                    <a class="aq-card-action" href="/chat">Detaylı Analiz →</a>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="aq-section">
+        <div class="aq-section-header">
+            <h2 class="aq-section-title">Grafikler</h2>
+            <div class="aq-section-subtitle">Trend ve dağılım</div>
+        </div>
+        <div class="aq-charts-grid">
+            <div class="aq-chart-wrap">
+                @if (_trendLabels.Count == 0)
+                {
+                    <div class="card h-100">
+                        <div class="card-body h-100 d-flex align-items-center justify-content-center">
+                            <div class="text-muted">Veri bulunamadı</div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <AirQualityChart Title="Son 7 Gün: PM10 / PM2.5" Labels="_trendLabels" Series="_trendSeries" />
+                }
+            </div>
+            <div class="aq-chart-wrap">
+                @if (_barLabels.Count == 0)
+                {
+                    <div class="card h-100">
+                        <div class="card-body h-100 d-flex align-items-center justify-content-center">
+                            <div class="text-muted">Veri bulunamadı</div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <AirQualityChart Title="Son 30 Gün: PM10 Günlük Ortalama" ChartType="bar" Labels="_barLabels" Values="_barValues" />
+                }
             </div>
         </div>
     </div>
@@ -67,25 +234,367 @@
         </div>
         <div class="aq-stats-grid">
             <div class="aq-stat-card">
-                <div class="aq-stat-icon aq-action-icon-blue"><i class="fa-solid fa-database" aria-hidden="true"></i></div>
-                <div class="aq-stat-value">Local</div>
-                <div class="aq-stat-label">PostgreSQL / MongoDB</div>
+                <div class="aq-stat-icon aq-action-icon-blue"><i class="fa-solid fa-globe" aria-hidden="true"></i></div>
+                <div>
+                    <div class="aq-stat-value">@_webHealth</div>
+                    <div class="aq-stat-label">Web Health (/healthz)</div>
+                </div>
             </div>
             <div class="aq-stat-card">
                 <div class="aq-stat-icon aq-action-icon-cyan"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></div>
-                <div class="aq-stat-value">Qdrant</div>
-                <div class="aq-stat-label">Vector DB</div>
+                <div>
+                    <div class="aq-stat-value">@_qdrantHealth</div>
+                    <div class="aq-stat-label">Qdrant</div>
+                </div>
             </div>
             <div class="aq-stat-card">
                 <div class="aq-stat-icon aq-action-icon-amber"><i class="fa-solid fa-plug" aria-hidden="true"></i></div>
-                <div class="aq-stat-value">MCP</div>
-                <div class="aq-stat-label">Tool Orchestration</div>
+                <div>
+                    <div class="aq-stat-value">@_mcpHealth</div>
+                    <div class="aq-stat-label">MCP</div>
+                </div>
             </div>
             <div class="aq-stat-card">
                 <div class="aq-stat-icon aq-action-icon-green"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></div>
-                <div class="aq-stat-value">Isolated</div>
-                <div class="aq-stat-label">Tenant Collections</div>
+                <div>
+                    <div class="aq-stat-value">@_tenantIsolation</div>
+                    <div class="aq-stat-label">Tenant Collections</div>
+                </div>
             </div>
         </div>
     </div>
 </div>
+
+@code {
+    private sealed record PollutantCard(string Title, string Icon, string IconClass, string BadgeText, string BadgeClass, string ValueText, string Subtitle, string DeviceInfo, string TenantSlug, int DeviceCount, IReadOnlyList<string> DeviceNames);
+
+    private readonly List<PollutantCard> _pollutantCards = new();
+    private readonly List<TenantInfo> _topTenants = new();
+    private readonly Dictionary<string, int> _tenantDeviceCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<TenantInfo> _allTenants = new();
+
+    private TenantInfo? _defaultTenant;
+    private IReadOnlyList<DeviceInfoRecord> _defaultTenantDevices = Array.Empty<DeviceInfoRecord>();
+    private IReadOnlyList<DeviceInfoRecord> _selectedTenantDevices = Array.Empty<DeviceInfoRecord>();
+    private IReadOnlyDictionary<string, IReadOnlyList<DeviceInfoRecord>> _devicesByTenantSlug = new Dictionary<string, IReadOnlyList<DeviceInfoRecord>>(StringComparer.OrdinalIgnoreCase);
+
+    private int? _tenantsCount;
+    private int? _devicesCount;
+    private DateTime? _lastUpdatedUtc;
+
+    private string _webHealth = "-";
+    private string _mcpHealth = "-";
+    private string _qdrantHealth = "-";
+    private string _tenantIsolation = "-";
+
+    private IReadOnlyList<string> _trendLabels = Array.Empty<string>();
+    private IReadOnlyDictionary<string, IReadOnlyList<double>> _trendSeries = new Dictionary<string, IReadOnlyList<double>>();
+
+    private IReadOnlyList<string> _barLabels = Array.Empty<string>();
+    private IReadOnlyList<double> _barValues = Array.Empty<double>();
+
+    private string _selectedAvgType = "24h_rolling";
+    private string _selectedTenantSlug = string.Empty;
+
+    private CancellationTokenSource? _loopCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loopCts = new CancellationTokenSource();
+        await RefreshAsync(_loopCts.Token);
+        _ = Task.Run(() => BackgroundRefreshLoopAsync(_loopCts.Token));
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            _loopCts?.Cancel();
+            _loopCts?.Dispose();
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task BackgroundRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await RefreshHealthAsync(cancellationToken);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        await RefreshTenantsAsync(cancellationToken);
+        await RefreshPollutantsAndChartsAsync(cancellationToken);
+        await RefreshHealthAsync(cancellationToken);
+        _lastUpdatedUtc = DateTime.UtcNow;
+    }
+
+    private async Task RefreshTenantsAsync(CancellationToken cancellationToken)
+    {
+        var tenants = await Mongo.GetTenantsAsync(limit: 200, cancellationToken);
+        _tenantsCount = tenants.Count;
+        _defaultTenant = tenants.FirstOrDefault();
+
+        _allTenants.Clear();
+        _allTenants.AddRange(tenants);
+
+        if (string.IsNullOrWhiteSpace(_selectedTenantSlug) && _defaultTenant is not null)
+        {
+            _selectedTenantSlug = _defaultTenant.SlugName;
+        }
+
+        _topTenants.Clear();
+        foreach (var t in tenants.Take(5))
+        {
+            _topTenants.Add(t);
+        }
+
+        _devicesCount = 0;
+        _tenantDeviceCounts.Clear();
+
+        // Fetch devices once and compute totals + per-tenant counts.
+        var allDevices = await Mongo.GetDevicesAsync(limit: 5000, cancellationToken);
+        _devicesCount = allDevices.Count;
+
+        var grouped = allDevices
+            .Where(d => !string.IsNullOrWhiteSpace(d.TenantSlugName))
+            .GroupBy(d => d.TenantSlugName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<DeviceInfoRecord>)g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        _devicesByTenantSlug = grouped;
+
+        foreach (var t in _topTenants)
+        {
+            _tenantDeviceCounts[t.SlugName] = grouped.TryGetValue(t.SlugName, out var list) ? list.Count : 0;
+        }
+
+        if (_defaultTenant is not null)
+        {
+            _defaultTenantDevices = grouped.TryGetValue(_defaultTenant.SlugName, out var list)
+                ? list
+                : Array.Empty<DeviceInfoRecord>();
+        }
+
+        if (!string.IsNullOrWhiteSpace(_selectedTenantSlug))
+        {
+            _selectedTenantDevices = grouped.TryGetValue(_selectedTenantSlug, out var list)
+                ? list
+                : Array.Empty<DeviceInfoRecord>();
+        }
+        else
+        {
+            _selectedTenantDevices = _defaultTenantDevices;
+        }
+
+        _tenantIsolation = _tenantsCount > 0 ? "Enabled" : "-";
+    }
+
+    private async Task RefreshPollutantsAndChartsAsync(CancellationToken cancellationToken)
+    {
+        _pollutantCards.Clear();
+
+        if (_defaultTenant is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_selectedTenantSlug))
+        {
+            _selectedTenantDevices = _devicesByTenantSlug.TryGetValue(_selectedTenantSlug, out var list)
+                ? list
+                : Array.Empty<DeviceInfoRecord>();
+        }
+        else
+        {
+            _selectedTenantSlug = _defaultTenant.SlugName;
+            _selectedTenantDevices = _defaultTenantDevices;
+        }
+
+        var deviceIds = _selectedTenantDevices.Select(d => d.DeviceId).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+        if (deviceIds.Count == 0)
+        {
+            _trendLabels = Array.Empty<string>();
+            _trendSeries = new Dictionary<string, IReadOnlyList<double>>();
+            _barLabels = Array.Empty<string>();
+            _barValues = Array.Empty<double>();
+            return;
+        }
+
+        var deviceCountText = deviceIds.Count switch
+        {
+            0 => "Cihaz bulunamadı",
+            1 => "1 cihaz",
+            _ => $"{deviceIds.Count} cihaz ortalaması"
+        };
+
+        // Anchor queries to the latest available telemetry_averages timestamp.
+        // This prevents empty dashboard results when the DB isn't up-to-date with wall clock time.
+        var latestTs = await AirQuality.GetLatestTelemetryAverageTimestampAsync(deviceIds, avgType: _selectedAvgType, cancellationToken);
+        var now = latestTs ?? DateTime.UtcNow;
+        var start24h = now.AddDays(-1);
+        var start7d = now.AddDays(-7);
+        var start30d = now.AddDays(-30);
+
+        var pollutants = new (string Title, string PollutantKey, string Icon, string IconClass)[]
+        {
+            ("PM10", "PM10", "fa-solid fa-wind", "aq-action-icon-blue"),
+            ("PM2.5", "PM25", "fa-solid fa-smog", "aq-action-icon-cyan"),
+            ("NO2", "NO2", "fa-solid fa-industry", "aq-action-icon-amber"),
+            ("O3", "O3", "fa-solid fa-sun", "aq-action-icon-green")
+        };
+
+        foreach (var p in pollutants)
+        {
+            var stats = await AirQuality.GetTelemetryAverageStatsAsync(deviceIds, start24h, now, p.PollutantKey, avgType: _selectedAvgType, cancellationToken);
+            var avg = stats.TryGetValue("average", out var av) ? av : null;
+            var min = stats.TryGetValue("minimum", out var mn) ? mn : null;
+            var max = stats.TryGetValue("maximum", out var mx) ? mx : null;
+
+            var deviceNames = _selectedTenantDevices
+                .Select(d => string.IsNullOrWhiteSpace(d.Label) ? (string.IsNullOrWhiteSpace(d.Name) ? d.DeviceId : d.Name) : d.Label)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Take(5)
+                .ToList();
+
+            var (badgeText, badgeClass) = GetAqiBadge(avg);
+            _pollutantCards.Add(new PollutantCard(
+                Title: p.Title,
+                Icon: p.Icon,
+                IconClass: p.IconClass,
+                BadgeText: badgeText,
+                BadgeClass: badgeClass,
+                ValueText: avg.HasValue ? avg.Value.ToString("F2") : "-",
+                Subtitle: min.HasValue && max.HasValue ? $"Min {min.Value:F0} / Max {max.Value:F0}" : "",
+                DeviceInfo: deviceCountText,
+                TenantSlug: _selectedTenantSlug,
+                DeviceCount: deviceIds.Count,
+                DeviceNames: deviceNames
+            ));
+        }
+
+        var t7 = await AirQuality.GetTelemetryAveragesAsync(deviceIds, start7d, now, avgType: _selectedAvgType, cancellationToken);
+        var byDay7 = t7
+            .GroupBy(x => x.CalculatedDateTime.Date)
+            .OrderBy(g => g.Key)
+            .ToList();
+
+        _trendLabels = byDay7.Select(g => g.Key.ToString("MM-dd")).ToList();
+        var pm10Series = byDay7.Select(g => SafeAvg(g.Select(x => x.PM10Calibrated))).ToList();
+        var pm25Series = byDay7.Select(g => SafeAvg(g.Select(x => x.PM25Calibrated))).ToList();
+        _trendSeries = new Dictionary<string, IReadOnlyList<double>>
+        {
+            ["PM10"] = pm10Series,
+            ["PM2.5"] = pm25Series
+        };
+
+        var t30 = await AirQuality.GetTelemetryAveragesAsync(deviceIds, start30d, now, avgType: _selectedAvgType, cancellationToken);
+        var byDay30 = t30
+            .GroupBy(x => x.CalculatedDateTime.Date)
+            .OrderBy(g => g.Key)
+            .ToList();
+
+        _barLabels = byDay30.Select(g => g.Key.ToString("MM-dd")).ToList();
+        _barValues = byDay30.Select(g => SafeAvg(g.Select(x => x.PM10Calibrated))).ToList();
+    }
+
+    private async Task RefreshHealthAsync(CancellationToken cancellationToken)
+    {
+        var http = HttpClientFactory.CreateClient();
+
+        // In Docker, server-side HttpClient runs inside the container.
+        // The app listens on 8080 inside the container (external mapping is 8081), so probe localhost:8080.
+        _webHealth = await ProbeAsync(http, new Uri("http://localhost:8080/healthz"), cancellationToken);
+
+        var mcpBase = Config["Mcp:HttpBaseUrl"];
+        if (!string.IsNullOrWhiteSpace(mcpBase))
+        {
+            _mcpHealth = await ProbeAsync(http, new Uri(new Uri(mcpBase), "/healthz"), cancellationToken);
+        }
+
+        var qdrantBase = Config["Qdrant:Host"];
+        if (!string.IsNullOrWhiteSpace(qdrantBase))
+        {
+            _qdrantHealth = await ProbeAsync(http, new Uri(new Uri(qdrantBase), "/collections"), cancellationToken);
+        }
+    }
+
+    private static async Task<string> ProbeAsync(HttpClient http, Uri url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            using var resp = await http.SendAsync(req, cancellationToken);
+            return resp.IsSuccessStatusCode ? "OK" : $"ERR {(int)resp.StatusCode}";
+        }
+        catch
+        {
+            return "DOWN";
+        }
+    }
+
+    private static double SafeAvg(IEnumerable<double?> values)
+    {
+        var list = values.Where(v => v.HasValue && !double.IsNaN(v.Value)).Select(v => v!.Value).ToList();
+        if (list.Count == 0) return 0;
+        return list.Average();
+    }
+
+    private static (string text, string css) GetAqiBadge(double? avg)
+    {
+        if (!avg.HasValue || double.IsNaN(avg.Value))
+        {
+            return ("N/A", "aq-badge-muted");
+        }
+
+        // Simple thresholds (PM10 proxy) for UI badge only.
+        var v = avg.Value;
+        if (v <= 50) return ("İyi", "aqi-good");
+        if (v <= 100) return ("Orta", "aqi-moderate");
+        if (v <= 150) return ("Hassas", "aqi-unhealthy-sensitive");
+        if (v <= 200) return ("Sağlıksız", "aqi-unhealthy");
+        if (v <= 300) return ("Çok Sağlıksız", "aqi-very-unhealthy");
+        return ("Tehlikeli", "aqi-hazardous");
+    }
+
+    private void OnAvgTypeChanged()
+    {
+        if (_loopCts is null)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshPollutantsAndChartsAsync(_loopCts.Token);
+            _lastUpdatedUtc = DateTime.UtcNow;
+            StateHasChanged();
+        });
+    }
+
+    private void OnTenantChanged()
+    {
+        if (_loopCts is null)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshPollutantsAndChartsAsync(_loopCts.Token);
+            _lastUpdatedUtc = DateTime.UtcNow;
+            StateHasChanged();
+        });
+    }
+}

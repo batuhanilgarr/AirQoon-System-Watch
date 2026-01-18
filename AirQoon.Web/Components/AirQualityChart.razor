@@ -1,3 +1,4 @@
+@implements IAsyncDisposable
 @inject IJSRuntime JS
 
 <div class="card h-100">
@@ -14,29 +15,99 @@
 
 @code {
     [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public string ChartType { get; set; } = "line";
     [Parameter] public IReadOnlyList<string> Labels { get; set; } = Array.Empty<string>();
     [Parameter] public IReadOnlyList<double> Values { get; set; } = Array.Empty<double>();
+    [Parameter] public IReadOnlyDictionary<string, IReadOnlyList<double>>? Series { get; set; }
 
     private readonly string _canvasId = $"aqc_{Guid.NewGuid():N}";
+    private bool _renderPending = true;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await RenderAsync();
-    }
-
-    protected override async Task OnParametersSetAsync()
-    {
-        await RenderAsync();
-    }
-
-    private async Task RenderAsync()
-    {
-        if (Labels.Count == 0 || Values.Count == 0 || Labels.Count != Values.Count)
+        if (!_renderPending)
         {
             return;
         }
 
-        await JS.InvokeVoidAsync("airqoonCharts.renderLineChart", _canvasId, Labels.ToArray(), Values.ToArray(), Title);
+        if (Labels.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _renderPending = false;
+            await RenderAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            // JS interop is not available during server-side prerender.
+            // Keep pending so it retries once the circuit is connected.
+            _renderPending = true;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _renderPending = true;
+        await Task.CompletedTask;
+    }
+
+    private async Task RenderAsync()
+    {
+        if (Labels.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            if (string.Equals(ChartType, "bar", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Values.Count == 0 || Labels.Count != Values.Count)
+                {
+                    return;
+                }
+
+                await JS.InvokeVoidAsync("airqoonCharts.renderBarChart", _canvasId, Labels.ToArray(), Values.ToArray(), Title);
+                return;
+            }
+
+            if (Series is not null && Series.Count > 0)
+            {
+                var dict = Series.ToDictionary(k => k.Key, v => v.Value?.ToArray() ?? Array.Empty<double>());
+                if (dict.Values.Any(v => v.Length != Labels.Count))
+                {
+                    return;
+                }
+
+                await JS.InvokeVoidAsync("airqoonCharts.renderMultiLineChart", _canvasId, Labels.ToArray(), dict, Title);
+                return;
+            }
+
+            if (Values.Count == 0 || Labels.Count != Values.Count)
+            {
+                return;
+            }
+
+            await JS.InvokeVoidAsync("airqoonCharts.renderLineChart", _canvasId, Labels.ToArray(), Values.ToArray(), Title);
+        }
+        catch (InvalidOperationException)
+        {
+            // JS interop not available yet (likely prerender). Retry later.
+            _renderPending = true;
+        }
+        catch (JSException)
+        {
+            // JS runtime error (e.g. Chart not ready or canvas temporarily unavailable). Retry later.
+            _renderPending = true;
+        }
+        catch
+        {
+            // If rendering fails for any reason, allow retry on next render.
+            _renderPending = true;
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -73,7 +73,15 @@ Docker Compose ile `web` servisi ayağa kalktığında:
 
 - Dashboard: `http://localhost:8081/`
 - Chat: `http://localhost:8081/chat`
+- Admin Tenants: `http://localhost:8081/admin/tenants`
+- Admin Analytics: `http://localhost:8081/admin/analytics`
 - Healthcheck: `http://localhost:8081/healthz`
+
+Admin notları:
+
+- `/admin/tenants` sayfasında `Device Count`, `Last Activity`, `Status` kolonları vardır.
+- `Status`: son 7 gün içinde data varsa **Active**, yoksa **Inactive**.
+- Performans için Postgres last-activity sorgusu batch alınır ve kısa süreli memory-cache (2 dk sliding) kullanılır.
 
 ### ⚙️ Environment Variables (Docker Compose)
 
@@ -266,6 +274,17 @@ python3 vector_db_setup.py
 curl -s -X POST http://localhost:8081/api/chat \
   -H 'Content-Type: application/json' \
   -d '{"sessionId":"demo","message":"akcansa icin 2025-01-01 ile 2025-01-08 arasi PM10 analizi","domain":"http://localhost:8081/chat","tenantSlug":"akcansa"}'
+```
+
+### Dashboard Chart.js Troubleshooting
+
+Grafikler görünmüyorsa tarayıcı console'da hızlı kontrol:
+
+```js
+typeof Chart
+window.airqoonCharts
+window.airqoonCharts.count()
+[...document.querySelectorAll('canvas[id^="aqc_"]')].map(c => ({ id: c.id, w: c.clientWidth, h: c.clientHeight, rendered: c.dataset.aqRendered }))
 ```
 
 Çalıştırma:
